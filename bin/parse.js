@@ -24,16 +24,18 @@ if (sources.length === 0) {
 }
 
 const t0 = Date.now();
-const { marks, subjects, warnings, stats } = parse(sources);
+const { marks, subjects, broadcasts, warnings, stats } = parse(sources);
 
 mkdirSync(outDir, { recursive: true });
 const ndjson = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
 writeFileSync(join(outDir, 'marks.ndjson'), ndjson(marks));
 writeFileSync(join(outDir, 'subjects.ndjson'), ndjson(subjects));
+writeFileSync(join(outDir, 'broadcasts.ndjson'), ndjson(broadcasts));
 
 const revs = marks.reduce((n, m) => n + m.revisions.length, 0);
 console.log(`档案 ${stats.bundles} 份 · 列表页 ${stats.pages} 张 · 观测 ${stats.observations} 次 · ${Date.now() - t0} ms`);
-console.log(`产出 标记 ${marks.length} 条（修订 ${revs} 条）· 作品 ${subjects.length} 个 → ${outDir}/`);
+const brevs = broadcasts.reduce((n, b) => n + b.revisions.length, 0);
+console.log(`产出 标记 ${marks.length} 条（修订 ${revs}）· 作品 ${subjects.length} 个 · 广播 ${broadcasts.length} 条（修订 ${brevs}）→ ${outDir}/`);
 if (Object.keys(stats.skipped).length) console.log('跳过:', stats.skipped);
 
 // 告警必须显眼。静默的抽取器退化正是这套设计从头到尾在防的东西。

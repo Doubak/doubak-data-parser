@@ -11,6 +11,7 @@
  */
 
 import { extractMarks } from './extract.js';
+import { extractBroadcasts } from './extract-broadcast.js';
 import { digestAll, sameRevision } from './digest.js';
 import { absenceAuthority, isContent, hasUnknownVerdict } from './authority.js';
 
@@ -32,6 +33,8 @@ export function parse(sources, opts = {}) {
   const marks = new Map();
   /** @type {Map<string, object>} `${medium}:${id}` → 作品 */
   const subjects = new Map();
+  /** @type {Map<string, object>} data-sid → 广播 */
+  const broadcasts = new Map();
   const warnings = [];
   const stats = { bundles: 0, pages: 0, observations: 0, skipped: {} };
 
@@ -44,7 +47,19 @@ export function parse(sources, opts = {}) {
     stats.bundles += 1;
     const cs = src.crawlState;
     for (const row of src.index) {
-      if (!row.intent?.startsWith('interest.list.')) continue;
+      const isBroadcast = row.intent === 'broadcast.timeline';
+      if (!isBroadcast && !row.intent?.startsWith('interest.list.')) continue;
+
+      if (isBroadcast) {
+        if (hasUnknownVerdict(row)) {
+          warnings.push({ type: 'unknown_verdict', verdict: row.verdict, capture: row.capture_id });
+          bump(stats.skipped, `未知 verdict:${row.verdict}`); continue;
+        }
+        if (!isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
+        work.push({ src, row, kind: 'broadcast', auth: absenceAuthority(cs.get(row.route_key), src.status) });
+        continue;
+      }
+
       const [, , medium, statusWord] = row.intent.split('.');
       const status = STATUS[statusWord];
       if (!status) { bump(stats.skipped, `未知状态词:${statusWord}`); continue; }
@@ -57,12 +72,12 @@ export function parse(sources, opts = {}) {
       }
       if (!isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
 
-      work.push({ src, row, medium, status, auth: absenceAuthority(cs.get(row.route_key), src.status) });
+      work.push({ src, row, kind: 'mark', medium, status, auth: absenceAuthority(cs.get(row.route_key), src.status) });
     }
   }
   work.sort((a, b) => (a.row.observed_at < b.row.observed_at ? -1 : 1));
 
-  for (const { src, row, medium, status, auth } of work) {
+  for (const { src, row, kind, medium, status, auth } of work) {
     let html;
     try {
       html = src.payload(row);
@@ -71,6 +86,34 @@ export function parse(sources, opts = {}) {
       continue;
     }
     stats.pages += 1;
+
+    const observationBase = {
+      bundle_id: src.bundleId,
+      capture_ids: [row.capture_id],
+      observed_at: row.observed_at,
+      absence_authority: auth,
+      surface: row.surface ?? 'html',
+    };
+
+    if (kind === 'broadcast') {
+      const owner = src.manifest?.account?.user_id;
+      if (!owner) {
+        // 不知道主人是谁就不抽——转发进来的是别人的广播，分不清就会把第三方内容
+        // 写进档案主人的 canonical。
+        warnings.push({ type: 'no_owner', capture: row.capture_id });
+        continue;
+      }
+      const { broadcasts: bs, idless: bIdless } = extractBroadcasts(html, owner);
+      if (bIdless > 0) {
+        warnings.push({ type: 'extractor_stale', capture: row.capture_id, kind: 'broadcast', idless: bIdless });
+      }
+      for (const b of bs) {
+        stats.observations += 1;
+        upsertBroadcast(broadcasts, { b, account: src.manifest?.account, observation: { ...observationBase }, parserVersion });
+      }
+      src.close();
+      continue;
+    }
 
     const { marks: raw, idless } = extractMarks(html, medium);
     if (idless > 0) {
@@ -91,13 +134,7 @@ export function parse(sources, opts = {}) {
         });
       }
 
-      const observation = {
-        bundle_id: src.bundleId,
-        capture_ids: [row.capture_id],
-        observed_at: row.observed_at,
-        absence_authority: auth,
-        surface: row.surface ?? 'html',
-      };
+      const observation = { ...observationBase };
 
       upsertMark(marks, { m, medium, status, account: src.manifest?.account, observation, parserVersion, tz });
       upsertSubject(subjects, { m, medium, observation, parserVersion });
@@ -108,6 +145,7 @@ export function parse(sources, opts = {}) {
   return {
     marks: [...marks.values()],
     subjects: [...subjects.values()],
+    broadcasts: [...broadcasts.values()],
     warnings,
     stats,
   };
@@ -220,6 +258,40 @@ function appendRevision(revisions, { fields, digests, observation, parserVersion
     digests,
     observations: [observation],
   });
+}
+
+/**
+ * 广播：身份是 `data-sid`，实测 100% 有，所以没有退化层。
+ *
+ * **它应当永远只有一条修订。** 广播发布后不可编辑——多出第二条修订不是「用户改了」，
+ * 是抽取器或页面变了，值得去看。这一点与标记正好相反：标记有多条修订是正常的。
+ */
+function upsertBroadcast(store, { b, account, observation, parserVersion }) {
+  const fields = {
+    posted_at: b.postedAt
+      ? { raw: b.postedAt, iso: b.postedAt.replace(' ', 'T') + '+08:00', precision: 'second', timezone_assumption: 'Asia/Shanghai' }
+      : null,
+    text: b.text,
+    action: b.action,
+    status: b.status,
+    target_type: b.targetType,
+    target_id: b.targetId,
+  };
+  const digests = digestAll(fields);
+
+  let rec = store.get(b.sid);
+  if (!rec) {
+    rec = {
+      canonical_version: CANONICAL_VERSION,
+      identity_layer: 'upstream_id',
+      upstream_id: b.sid,
+      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      url: b.url,
+      revisions: [],
+    };
+    store.set(b.sid, rec);
+  }
+  appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
 }
 
 function bump(obj, key) { obj[key] = (obj[key] ?? 0) + 1; }
