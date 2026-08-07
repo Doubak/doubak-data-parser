@@ -14,7 +14,7 @@ import { extractMarks } from './extract.js';
 import { extractBroadcasts } from './extract-broadcast.js';
 import { extractLongform } from './extract-longform.js';
 import { digestAll, sameRevision } from './digest.js';
-import { absenceAuthority, isContent, hasUnknownVerdict } from './authority.js';
+import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from './authority.js';
 
 export const PARSER_VERSION = 'doubak-data-parser/0.0.1';
 export const CANONICAL_VERSION = 'canonical/1.0';
@@ -39,7 +39,27 @@ export function parse(sources, opts = {}) {
   /** @type {Map<string, object>} `${kind}:${id}` → 日记 / 评论 */
   const longform = new Map();
   const warnings = [];
-  const stats = { bundles: 0, pages: 0, observations: 0, skipped: {} };
+  const stats = {
+    bundles: 0,
+    pages: 0,
+    observations: 0,
+    skipped: {},
+    /**
+     * **改一行选择器就能救回来的捕获。**
+     *
+     * 这是 `verdict_reason`（bundle/1.2）真正兑现的地方。解析器能一次扫完所有档案，
+     * 回答一个别处回答不了的问题：**欠了多少，以及要不要求人重抓。**
+     *
+     * `frame_anchors_missing` / `not_an_image` 这两类的页面已经原样躺在 WARC 里，
+     * 改好抽取器离线重跑就行；而 `empty_body` / `server_error` 那类得真的重抓。
+     * 混成一句「有 N 条失败」的话，用户只能去做代价最大的那个动作。
+     *
+     * 按 route_key 分组：一次改动通常只修好一条路线，分组之后「改这个能救回多少」
+     * 是直接可读的。
+     * @type {Record<string, number>}
+     */
+    recalibratable: {},
+  };
 
   // 观测必须按时间升序处理，否则「第一次看到」和「最后一次看到」会记反。
   // 顺序无关那条说的是**结果**与输入顺序无关，不是可以随便乱序处理。
@@ -59,7 +79,11 @@ export function parse(sources, opts = {}) {
           warnings.push({ type: 'unknown_verdict', verdict: row.verdict, capture: row.capture_id });
           bump(stats.skipped, `未知 verdict:${row.verdict}`); continue;
         }
-        if (!isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
+        if (!isContent(row)) {
+          bump(stats.skipped, `verdict:${row.verdict}`);
+          if (isRecalibratable(row)) bump(stats.recalibratable, row.route_key);
+          continue;
+        }
         work.push({ src, row, kind: 'longform', lfKind, auth: absenceAuthority(cs.get(row.route_key), src.status) });
         continue;
       }
@@ -69,7 +93,11 @@ export function parse(sources, opts = {}) {
           warnings.push({ type: 'unknown_verdict', verdict: row.verdict, capture: row.capture_id });
           bump(stats.skipped, `未知 verdict:${row.verdict}`); continue;
         }
-        if (!isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
+        if (!isContent(row)) {
+          bump(stats.skipped, `verdict:${row.verdict}`);
+          if (isRecalibratable(row)) bump(stats.recalibratable, row.route_key);
+          continue;
+        }
         work.push({ src, row, kind: 'broadcast', auth: absenceAuthority(cs.get(row.route_key), src.status) });
         continue;
       }
@@ -84,7 +112,11 @@ export function parse(sources, opts = {}) {
         bump(stats.skipped, `未知 verdict:${row.verdict}`);
         continue;
       }
-      if (!isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
+      if (!isContent(row)) {
+        bump(stats.skipped, `verdict:${row.verdict}`);
+        if (isRecalibratable(row)) bump(stats.recalibratable, row.route_key);
+        continue;
+      }
 
       work.push({ src, row, kind: 'mark', medium, status, auth: absenceAuthority(cs.get(row.route_key), src.status) });
     }

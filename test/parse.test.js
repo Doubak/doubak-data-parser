@@ -9,7 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 
-import { absenceAuthority, isContent, hasUnknownVerdict } from '../src/authority.js';
+import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from '../src/authority.js';
 import { fieldDigest, digestAll, sameRevision } from '../src/digest.js';
 import { extractMarks } from '../src/extract.js';
 import { openAll } from '../src/bundle-source.js';
@@ -234,5 +234,54 @@ describe('对着真实档案端到端', () => {
     const a = parse(openAll(DL)).marks.length;
     const b = parse(openAll(DL).reverse()).marks.length;
     assert.equal(a, b);
+  });
+});
+
+describe('哪些判不出来是「改一行就能救回来」的', () => {
+  /**
+   * 这是 `verdict_reason`（bundle/1.2）真正兑现的地方。解析器能一次扫完所有档案，
+   * 回答一个别处回答不了的问题：**欠了多少，以及要不要求人重抓。**
+   *
+   * 混成一句「有 N 条失败」的话，用户只能去做代价最大的那个动作。而其中一类是免费的：
+   * 页面已经原样躺在 WARC 里，改好抽取器离线重跑就行，一个请求都不用发。
+   */
+  test('页面结构变了 → 能救', () => {
+    assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'frame_anchors_missing' }), true);
+    assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'not_an_image' }), true);
+  });
+
+  test('**空响应 / 服务端出错 → 救不了，得重抓**', () => {
+    // 那两种的字节本来就没拿到，改抽取器无济于事。混进来会让用户以为不用重抓。
+    assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'empty_body' }), false);
+    assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'server_error' }), false);
+  });
+
+  test('真的被拦下的不算', () => {
+    assert.equal(isRecalibratable({ verdict: 'blocked' }), false);
+    assert.equal(isRecalibratable({ verdict: 'ok' }), false);
+  });
+
+  test('**1.2 之前的档案也要认出来** —— 它们只有 note', () => {
+    // 那时判不出来的响应只能写成 blocked，真相退在 note 里。档案是冻结的，
+    // 改词表救不回它们——所以两条路都得走。
+    //
+    // 这不是假想：同一份真实档案里两种写法并存（中途重载了扩展，前后代码不同版本）。
+    const old = {
+      verdict: 'blocked',
+      note: '判不出来：导航栏中存在登录状态；最终 URL 仍是这条路线；一个内容区块都没有'
+        + '（试过 class="note-container"、id="note-\\d+"、class="note-header）',
+    };
+    assert.equal(isRecalibratable(old), true);
+  });
+
+  test('note 说判不出来、但原因是空响应 → 仍然救不了', () => {
+    assert.equal(isRecalibratable({ verdict: 'blocked', note: '判不出来：响应体为空' }), false);
+  });
+
+  test('按路线分组统计 —— 一次改动通常只修好一条路线', (t) => {
+    if (!existsSync('/home/mewx/downloads/20260806')) return t.skip('真实档案不在这台机器上');
+    const { stats } = parse(openAll('/home/mewx/downloads/20260806'));
+    // 实测：那两条 /topic/ 日记的旧写法，改好框架标志之后离线重跑就能救回来。
+    assert.ok(stats.recalibratable['note.item'] >= 2, JSON.stringify(stats.recalibratable));
   });
 });

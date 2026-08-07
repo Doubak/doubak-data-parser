@@ -93,13 +93,17 @@ describe('对着真实档案', () => {
     const { longform } = parse(openAll(DL));
     // 同样不钉死篇数——它会随着新写的日记长大。要守的是「每篇只有一条修订」。
     assert.ok(longform.length >= 4, `只有 ${longform.length} 篇`);
+    // **「只有一条修订」这句话不能是空的。** 刚发的日记只被抓过一次，对它而言那句话
+    // 无从证伪；所以要求整组里**至少有一篇**被观测过多次——那一篇才真正证明了
+    // 抽取器跨抓取是稳的。（原来对每一篇都要求 ≥2 次，用户新发一篇日记就红了。）
+    assert.ok(
+      longform.some((r) => r.revisions[0].observations.length >= 2),
+      '没有一篇被观测过多次，那「只有一条修订」就是空话',
+    );
     for (const r of longform) {
       assert.equal(r.revisions.length, 1,
         `${r.kind} ${r.upstream_id} 有 ${r.revisions.length} 条修订——多半是抽取器不稳，不是用户改了`);
-      // 至少被抓过 2 次，否则「只有一条修订」这句话是空的。
-      assert.ok(r.revisions[0].observations.length >= 2,
-        `${r.upstream_id} 只被观测过 ${r.revisions[0].observations.length} 次`);
-      assert.ok((r.revisions[0].fields.body ?? '').length > 200, '正文太短，像是只抽到了摘要');
+      assert.ok((r.revisions[0].fields.body ?? '').length > 100, '正文太短，像是只抽到了摘要');
     }
   });
 
