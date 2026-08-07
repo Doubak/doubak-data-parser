@@ -78,10 +78,15 @@ describe('对着真实档案', () => {
   test('**广播不可编辑 —— 3392 条，修订也是 3392 条**', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     const { broadcasts } = parse(openAll(DL));
-    assert.equal(broadcasts.length, 3392);
-    // 一比一。有 24 条被观测了不止一次，内容全都没变，所以没产生第二条修订。
-    // 这里要是大于 1，说明抽取器或页面变了——不是用户改了广播。
-    assert.equal(broadcasts.filter((b) => b.revisions.length > 1).length, 0);
+    // **不钉死条数。** 那个目录会随着新抓取长大——第一版写死 3392，用户多跑了一次
+    // 就红了，而什么都没坏。钉死一个会自然变化的数，测的是「档案有没有变」，
+    // 不是「解析器对不对」。
+    assert.ok(broadcasts.length > 3000, `只有 ${broadcasts.length} 条，像是没读到`);
+
+    // 真正要守的是**一比一**：广播发布后不可编辑，所以修订数应当恒等于记录数。
+    // 大于 1 说明抽取器或页面变了——不是用户改了广播。
+    const revisions = broadcasts.reduce((n, b) => n + b.revisions.length, 0);
+    assert.equal(revisions, broadcasts.length);
     assert.ok(broadcasts.some((b) => b.revisions[0].observations.length > 1), '没有一条被观测多次，那这条测试就是空的');
   });
 

@@ -25,11 +25,44 @@
  * 所以多条修订是正常的，正是要留住的东西。广播那边多一条修订是警报。
  */
 
+/**
+ * 从某个 `<div …>` 起，取出**与之配对**的那个 `</div>` 之前的内容。
+ *
+ * ## 为什么不能用正则
+ *
+ * 正文里嵌着别的 div（图片是 `<div class="image-container">…</div>`）。
+ * `([\s\S]*?)<\/div>` 会停在**第一个**闭合标签上——实测那篇带图日记因此只抽到
+ * 32 个字，正文剩下的两段全丢了。而贪婪匹配又会冲过头，把页脚的浏览计数吞进来
+ * （那会让每次抓取都多出一条假修订）。
+ *
+ * 两个方向都错过一次，所以老老实实数嵌套。这不优雅，但它是对的，而且不到十行。
+ *
+ * @param {string} html
+ * @param {number} openAt  起始 `<div` 的下标
+ * @returns {string|null}
+ */
+function sliceDiv(html, openAt) {
+  const bodyStart = html.indexOf('>', openAt);
+  if (bodyStart < 0) return null;
+  let depth = 1;
+  let i = bodyStart + 1;
+  const tag = /<\/?div\b/g;
+  tag.lastIndex = i;
+  for (let m = tag.exec(html); m; m = tag.exec(html)) {
+    depth += m[0][1] === '/' ? -1 : 1;
+    if (depth === 0) return html.slice(bodyStart + 1, m.index);
+  }
+  return null; // 标签没配平——宁可返回 null，也不返回半截正文
+}
+
 /** 剥标签，保留文字与换行。正文里的 `<br>` 是内容的一部分。 */
 function bodyText(html) {
   return html
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
+    // `</div>` 也算断开。不加这一条，图注会和下一段黏成一句——实测那篇带图日记
+    // 变成了「长这样咯就是然后备份下来的数据…」。**那已经不是用户写的字了。**
+    .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&amp;/g, '&').replace(/&quot;|&#34;/g, '"').replace(/&#39;/g, "'")
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
@@ -61,6 +94,13 @@ export function extractLongform(html, kind) {
 }
 
 function note(html) {
+  // **日记有两种页面结构，都要认。** 不是豆瓣改版——两种同时存在，发日记时用哪个
+  // 编辑器就得到哪一种（`/note/<id>/` 与 `/topic/<id>/`）。
+  //
+  // 这一条是从真实档案里学到的：写第一版时手上只有两篇日记、恰好都是旧那种，于是
+  // 从 n=2 推出了一个封闭的形状集合。抓取那边同样的错误已经犯过一次。
+  if (/id="topic-content"|class="topic-title"/.test(html)) return topicNote(html);
+
   const id = /<div id="note-(\d+)"/.exec(html)?.[1];
   if (!id) return null;
 
@@ -120,5 +160,42 @@ function review(html) {
     // `/subject/26425271/`，而这条评论其实是给游戏写的（`/game/26425271/`），
     // 相对路径会把媒介弄错。
     subjectUrl: /"sameAs":\s*"(https:\/\/[^"]*douban\.com\/[^"]+)"/.exec(html)?.[1] ?? null,
+  };
+}
+
+/**
+ * `/topic/<id>/` 那种日记。
+ *
+ * 与 `/note/` 那种结构完全不同：
+ *
+ *     标题   <h1 class="topic-title">
+ *     时间   <span class="create-time">2026-08-07 16:25:36</span>
+ *     发布地 <span class="ip-location">澳大利亚</span>
+ *     正文   <div class="rich-content topic-richtext">
+ *
+ * **正文右端同样要钉死。** 旁边就是 `<span class="create-visit-count">4浏览</span>`
+ * ——浏览计数每次抓取都在涨，吞进正文就会让同一篇日记每抓一次多出一条修订，
+ * 也就是凭空捏造编辑历史。`/note/` 那种上面已经栽过一次，这里不能再栽。
+ *
+ * 好在这种结构里计数在 `.topic-meta` 里、在正文容器**外面**，所以把正文锚在
+ * `.rich-content` 上就自然避开了。
+ */
+function topicNote(html) {
+  const id = /\/topic\/(\d+)\/?/.exec(html)?.[1]
+    ?? /data-tid="(\d+)"/.exec(html)?.[1];
+  if (!id) return null;
+
+  const at = /<div class="rich-content[^"]*"/.exec(html)?.index ?? -1;
+  const body = at >= 0 ? sliceDiv(html, at) : null;
+  return {
+    id,
+    kind: 'note',
+    title: /<h1 class="topic-title">\s*([^<]+?)\s*<\/h1>/.exec(html)?.[1] ?? null,
+    publishedAt: /class="create-time">\s*([\d:\- ]{10,19})/.exec(html)?.[1]?.trim() ?? null,
+    location: /class="ip-location">\s*([^<]+)/.exec(html)?.[1]?.trim() || null,
+    body: body ? bodyText(body) : null,
+    url: /https:\/\/www\.douban\.com\/topic\/\d+\//.exec(html)?.[0] ?? null,
+    rating: null,
+    subjectUrl: null,
   };
 }

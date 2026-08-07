@@ -91,12 +91,14 @@ describe('对着真实档案', () => {
   test('**4 篇长文，每篇都只有 1 条修订** —— 抽取器是稳的', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     const { longform } = parse(openAll(DL));
-    assert.equal(longform.length, 4);
+    // 同样不钉死篇数——它会随着新写的日记长大。要守的是「每篇只有一条修订」。
+    assert.ok(longform.length >= 4, `只有 ${longform.length} 篇`);
     for (const r of longform) {
       assert.equal(r.revisions.length, 1,
         `${r.kind} ${r.upstream_id} 有 ${r.revisions.length} 条修订——多半是抽取器不稳，不是用户改了`);
-      // 每篇都被抓了 3 次。要是只被抓过 1 次，上面那条断言就是空的。
-      assert.equal(r.revisions[0].observations.length, 3);
+      // 至少被抓过 2 次，否则「只有一条修订」这句话是空的。
+      assert.ok(r.revisions[0].observations.length >= 2,
+        `${r.upstream_id} 只被观测过 ${r.revisions[0].observations.length} 次`);
       assert.ok((r.revisions[0].fields.body ?? '').length > 200, '正文太短，像是只抽到了摘要');
     }
   });
@@ -107,5 +109,68 @@ describe('对着真实档案', () => {
     const note = longform.find((r) => r.upstream_id === '868128497');
     assert.equal(note.revisions[0].fields.title, '想看的被河蟹的电影');
     assert.match(note.revisions[0].fields.body, /An Unfinished Film/);
+  });
+});
+
+describe('/topic/ 那种日记', () => {
+  /**
+   * 日记有两种页面结构，**不是豆瓣改版**——两种同时存在，发日记时用哪个编辑器就
+   * 得到哪一种。写第一版时手上只有两篇、恰好都是旧那种，于是从 n=2 推出了一个
+   * 封闭集合。抓取那边犯过同样的错。
+   */
+  const PAGE = '/home/mewx/downloads/496284296.html';
+  const topic = (body, views = 4) => `<html><body>
+    <link rel="canonical" href="https://www.douban.com/topic/496284296/">
+    <h1 class="topic-title">测试一下带图的日记</h1>
+    <div class="personal-topic" id="topic-content">
+      <div class="topic-meta">
+        <span class="create-time">2026-08-07 16:25:36</span>
+        <span class="ip-location">澳大利亚</span>
+        <span class="create-visit-count">${views}浏览</span>
+      </div>
+      <div class="topic-content"><div class="rich-content topic-richtext">${body}</div></div>
+    </div></body></html>`;
+
+  test('抽出标题、秒级时间、发布地、全文', () => {
+    const r = extractLongform(topic('<p>正文</p>'), 'note');
+    assert.equal(r.id, '496284296');
+    assert.equal(r.title, '测试一下带图的日记');
+    assert.equal(r.publishedAt, '2026-08-07 16:25:36');
+    assert.equal(r.location, '澳大利亚');
+    assert.equal(r.body, '正文');
+  });
+
+  test('**正文里嵌着 div 也要抽全** —— 图片就是 div', () => {
+    // `([\s\S]*?)</div>` 会停在第一个闭合标签上：实测那篇带图日记只抽到 32 个字，
+    // 剩下两段全丢了。所以要数嵌套，不能靠正则。
+    const body = '<p>第一段</p>'
+      + '<div class="image-container"><div class="image-wrapper"><img src="x"></div></div>'
+      + '<p>第二段</p>';
+    assert.match(extractLongform(topic(body), 'note').body, /第一段[\s\S]*第二段/);
+  });
+
+  test('**浏览计数不许进正文** —— 它每次抓取都在涨', () => {
+    // 吞进去的话，同一篇日记每抓一次就多一条修订，也就是凭空捏造编辑历史。
+    const a = extractLongform(topic('<p>一字未改</p>', 4), 'note');
+    const b = extractLongform(topic('<p>一字未改</p>', 5), 'note');
+    assert.equal(a.body, b.body);
+    assert.ok(!/浏览/.test(a.body));
+  });
+
+  test('图注不与下一段黏在一起', async () => {
+    // 黏起来之后那已经不是用户写的字了。
+    const body = '<div class="image-caption">图注</div><p>下一段</p>';
+    assert.match(extractLongform(topic(body), 'note').body, /图注\n+下一段/);
+  });
+
+  test('对着真实页面：全文、无计数', async (t) => {
+    const { existsSync, readFileSync } = await import('node:fs');
+    if (!existsSync(PAGE)) return t.skip('样本不在这台机器上');
+    const r = extractLongform(readFileSync(PAGE, 'utf-8'), 'note');
+    assert.equal(r.id, '496284296');
+    assert.equal(r.title, '测试一下带图的日记');
+    assert.equal(r.publishedAt, '2026-08-07 16:25:36');
+    assert.ok(r.body.length > 100, `正文只有 ${r.body.length} 字，像是被截断了`);
+    assert.ok(!/\d+浏览/.test(r.body));
   });
 });

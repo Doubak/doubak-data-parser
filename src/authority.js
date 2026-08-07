@@ -64,12 +64,47 @@ export function isContent(row) {
 }
 
 /**
+ * 这条捕获是不是「改好抽取器就能救回来」的那一种。
+ *
+ * ## 为什么值得单独回答
+ *
+ * `verdict_reason`（bundle/1.2）把「判不出来」分成了三类处置，而其中一类是**免费的**：
+ *
+ *   frame_anchors_missing / not_an_image  → 页面已经在档案里，改抽取器离线重跑即可
+ *   empty_body / server_error             → 得重抓
+ *   其余                                   → 先看一眼
+ *
+ * 解析器是这个区分真正兑现的地方：它能一次扫完所有档案，回答「有多少条只要我改一行
+ * 选择器就能救回来」。那正是「把捕获与解释分开」买到的东西——**知道欠了多少，而且
+ * 知道不用求人重抓**。
+ *
+ * 旧档案（1.2 之前）没有 verdict_reason，退回读 note。档案是冻结的，两条路都得走。
+ *
+ * @param {object} row
+ */
+export function isRecalibratable(row) {
+  if (row.verdict !== 'unknown' && !String(row.note ?? '').startsWith('判不出来')) return false;
+  const reason = row.verdict_reason
+    ?? (/一个内容区块都没有|缺少 \d+ 个页面框架标志/.test(row.note ?? '') ? 'frame_anchors_missing' : null);
+  return reason === 'frame_anchors_missing' || reason === 'not_an_image';
+}
+
+/**
  * 未知的 `verdict` 取值必须当作「判不出来」。
  *
  * 封闭词表出现新取值，意味着生产者知道一种**本解析器不认识的失败方式**。把它当成
  * ok 的代价，正是这整个模块在防的那件事。这个不对称是刻意的（INGESTION.md §5.3）。
+ *
+ * `unknown` 是 bundle/1.2 加的，含义就是「生产者也判不出来」。它必须在这个集合里
+ * ——**不然会被当成「未知取值」而多报一条告警**，而那条告警的意思是「规范跑到我
+ * 前面去了」，与实际情况不符。处置本身不变：不摄取为内容、权限降为 none。
+ *
+ * 顺带说明这条规则为什么值得写：规范先落地、消费者再跟上（CLAUDE.md），而「跟上」
+ * 具体就是这一行。漏了它，症状是一堆看不懂的告警，而不是错数据——失败方向是对的。
  */
-export const KNOWN_VERDICTS = new Set(['ok', 'blocked', 'challenge', 'login', 'gone', 'soft404']);
+export const KNOWN_VERDICTS = new Set([
+  'ok', 'blocked', 'challenge', 'login', 'gone', 'soft404', 'unknown',
+]);
 
 /** @param {object} row */
 export function hasUnknownVerdict(row) {
