@@ -26,8 +26,8 @@ import { parse } from '../src/parse.js';
  */
 const CASES = new URL('../../doubak-data-specs/canonical/tests/cases', import.meta.url).pathname;
 
-/** @param {object[]} marks */
-function summarize(marks, warnings) {
+/** @param {object} out `parse()` 的产出 */
+function summarize({ marks, broadcasts, longform }, warnings) {
   const authorities = new Set();
   const identityLayers = new Set();
   let revisions = 0;
@@ -42,6 +42,23 @@ function summarize(marks, warnings) {
     authorities: [...authorities].sort(),
     identity_layers: [...identityLayers].sort(),
     warning_types: [...new Set(warnings.map((w) => w.type))].sort(),
+
+    broadcasts: broadcasts.length,
+    broadcast_revisions: broadcasts.reduce((n, b) => n + b.revisions.length, 0),
+    // **观测数不等于修订数。** 同一条广播在同一页上出现两次（头插翻页重叠）只是
+    // 一次观测——抽取器不去重的话，这个数会变成 2，而记录数与修订数都还是 1。
+    // 只断言后两者的话，去重那一步被删掉也测不出来。
+    broadcast_observations: broadcasts.reduce(
+      (n, b) => n + b.revisions.reduce((k, r) => k + r.observations.length, 0), 0,
+    ),
+    // 只收非 null 的——「收藏图书到豆列」映射不到三种标记状态，那时必须是 null。
+    broadcast_statuses: [...new Set(
+      broadcasts.flatMap((b) => b.revisions.map((r) => r.fields.status)).filter(Boolean),
+    )].sort(),
+
+    longform: longform.length,
+    longform_revisions: longform.reduce((n, r) => n + r.revisions.length, 0),
+    longform_body_contains: longform.map((r) => r.revisions[0].fields.body ?? '').join('\n'),
   };
 }
 
@@ -56,7 +73,7 @@ describe('canonical 一致性用例', () => {
   test('用例是有的 —— 空目录不该悄悄算通过', () => {
     // 这条守的是套件本身：`cases/` 被清空或路径写错时，上面的循环会一条都不跑，
     // 而测试报告仍然全绿。那比用例失败更糟。
-    assert.ok(names.length >= 9, `只找到 ${names.length} 个用例`);
+    assert.ok(names.length >= 15, `只找到 ${names.length} 个用例`);
   });
 
   for (const name of names) {
@@ -67,14 +84,17 @@ describe('canonical 一致性用例', () => {
     const why = readFileSync(join(dir, 'EXPECTED.txt'), 'utf-8').trim();
 
     test(name, () => {
-      const { marks, warnings } = parse(openAll(join(dir, 'bundles')));
-      const got = summarize(marks, warnings);
+      const out = parse(openAll(join(dir, 'bundles')));
+      const got = summarize(out, out.warnings);
 
       for (const [key, want] of Object.entries(expect)) {
         const actual = got[key];
-        const ok = Array.isArray(want)
-          ? want.every((v) => actual.includes(v)) && actual.length === want.length
-          : actual === want;
+        // `*_contains` 是子串断言（正文太长，不适合逐字比）；其余是相等或集合相等。
+        const ok = key.endsWith('_contains')
+          ? String(actual).includes(String(want))
+          : Array.isArray(want)
+            ? want.every((v) => actual.includes(v)) && actual.length === want.length
+            : actual === want;
         assert.ok(
           ok,
           `${name}: ${key} 应为 ${JSON.stringify(want)}，实际 ${JSON.stringify(actual)}\n\n${why}\n`,
