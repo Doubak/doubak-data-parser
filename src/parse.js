@@ -12,6 +12,7 @@
 
 import { extractMarks } from './extract.js';
 import { extractBroadcasts } from './extract-broadcast.js';
+import { extractLongform } from './extract-longform.js';
 import { digestAll, sameRevision } from './digest.js';
 import { absenceAuthority, isContent, hasUnknownVerdict } from './authority.js';
 
@@ -35,6 +36,8 @@ export function parse(sources, opts = {}) {
   const subjects = new Map();
   /** @type {Map<string, object>} data-sid → 广播 */
   const broadcasts = new Map();
+  /** @type {Map<string, object>} `${kind}:${id}` → 日记 / 评论 */
+  const longform = new Map();
   const warnings = [];
   const stats = { bundles: 0, pages: 0, observations: 0, skipped: {} };
 
@@ -48,7 +51,18 @@ export function parse(sources, opts = {}) {
     const cs = src.crawlState;
     for (const row of src.index) {
       const isBroadcast = row.intent === 'broadcast.timeline';
-      if (!isBroadcast && !row.intent?.startsWith('interest.list.')) continue;
+      const lfKind = row.intent === 'note.item' ? 'note' : row.intent === 'review.item' ? 'review' : null;
+      if (!isBroadcast && !lfKind && !row.intent?.startsWith('interest.list.')) continue;
+
+      if (lfKind) {
+        if (hasUnknownVerdict(row)) {
+          warnings.push({ type: 'unknown_verdict', verdict: row.verdict, capture: row.capture_id });
+          bump(stats.skipped, `未知 verdict:${row.verdict}`); continue;
+        }
+        if (!isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
+        work.push({ src, row, kind: 'longform', lfKind, auth: absenceAuthority(cs.get(row.route_key), src.status) });
+        continue;
+      }
 
       if (isBroadcast) {
         if (hasUnknownVerdict(row)) {
@@ -77,7 +91,7 @@ export function parse(sources, opts = {}) {
   }
   work.sort((a, b) => (a.row.observed_at < b.row.observed_at ? -1 : 1));
 
-  for (const { src, row, kind, medium, status, auth } of work) {
+  for (const { src, row, kind, lfKind, medium, status, auth } of work) {
     let html;
     try {
       html = src.payload(row);
@@ -94,6 +108,21 @@ export function parse(sources, opts = {}) {
       absence_authority: auth,
       surface: row.surface ?? 'html',
     };
+
+    if (kind === 'longform') {
+      const lf = extractLongform(html, lfKind);
+      if (!lf) {
+        // 认不出来就报，**不猜**。正文页的结构是从真实抓取的字节里量出来的；
+        // 认不出多半意味着豆瓣改版了，而那一页已经如实存进档案，改好重跑即可。
+        warnings.push({ type: 'extractor_stale', capture: row.capture_id, kind: lfKind });
+        src.close();
+        continue;
+      }
+      stats.observations += 1;
+      upsertLongform(longform, { lf, account: src.manifest?.account, observation: { ...observationBase }, parserVersion });
+      src.close();
+      continue;
+    }
 
     if (kind === 'broadcast') {
       const owner = src.manifest?.account?.user_id;
@@ -146,6 +175,7 @@ export function parse(sources, opts = {}) {
     marks: [...marks.values()],
     subjects: [...subjects.values()],
     broadcasts: [...broadcasts.values()],
+    longform: [...longform.values()],
     warnings,
     stats,
   };
@@ -290,6 +320,42 @@ function upsertBroadcast(store, { b, account, observation, parserVersion }) {
       revisions: [],
     };
     store.set(b.sid, rec);
+  }
+  appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
+}
+
+/**
+ * 日记与评论。
+ *
+ * **与广播相反：长文可以编辑**，所以多条修订是正常的，正是要留住的东西。
+ * 而列表页上那份是截断摘要，只有正文页才有全文——这条路线的全部意义就在这儿。
+ */
+function upsertLongform(store, { lf, account, observation, parserVersion }) {
+  const key = `${lf.kind}:${lf.id}`;
+  const fields = {
+    title: lf.title,
+    published_at: lf.publishedAt
+      ? { raw: lf.publishedAt, iso: lf.publishedAt.replace(' ', 'T') + '+08:00', precision: 'second', timezone_assumption: 'Asia/Shanghai' }
+      : null,
+    body: lf.body,
+    rating: lf.rating,
+    subject_url: lf.subjectUrl,
+    location: lf.location,
+  };
+  const digests = digestAll(fields);
+
+  let rec = store.get(key);
+  if (!rec) {
+    rec = {
+      canonical_version: CANONICAL_VERSION,
+      kind: lf.kind,
+      identity_layer: 'upstream_id',
+      upstream_id: lf.id,
+      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      url: lf.url,
+      revisions: [],
+    };
+    store.set(key, rec);
   }
   appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
 }
