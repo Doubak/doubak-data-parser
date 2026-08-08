@@ -43,6 +43,22 @@ describe('日记', () => {
     assert.ok(!/人浏览/.test(a.body));
   });
 
+  test('**`<script>` 的内容不许进正文** —— 那里面有豆瓣前端的资源哈希', () => {
+    // 剥标签的正则只吃 `<...>`，留下的是标签之间的东西——而 `<script>` 之间的
+    // 东西是 JS 源码。实测两篇日记因此带上了：
+    //
+    //     Do.add('html5_video', { path: '…/note/html5_video.48d02.js' })
+    //
+    // 那串 `48d02` 是豆瓣前端资源的哈希，**豆瓣重新发布一次前端它就变一次**，
+    // 于是一个字没动的日记会凭空多出一条修订。与浏览计数是同一类错。
+    const js = (h) => `<script>Do.add('html5_video', {path: '…/html5_video.${h}.js'})</script>`;
+    const a = extractLongform(notePage('1', `<p data-page="0">一字未改</p>${js('48d02')}`), 'note');
+    const b = extractLongform(notePage('1', `<p data-page="0">一字未改</p>${js('9f3c1')}`), 'note');
+    assert.equal(a.body, b.body, '正文里混进了 script 的内容');
+    assert.ok(!/html5_video|Do\.add/.test(a.body));
+    assert.equal(a.body, '一字未改');
+  });
+
   test('不抓 _short —— 那是列表页的摘要，正文页上是空的', () => {
     const r = extractLongform(notePage('2', '<p data-page="0">全文内容</p>'), 'note');
     assert.equal(r.body, '全文内容');
@@ -176,5 +192,6 @@ describe('/topic/ 那种日记', () => {
     assert.equal(r.publishedAt, '2026-08-07 16:25:36');
     assert.ok(r.body.length > 100, `正文只有 ${r.body.length} 字，像是被截断了`);
     assert.ok(!/\d+浏览/.test(r.body));
+    assert.ok(!/Do\.add|doubanio\.com\/cuphead/.test(r.body), '正文里混进了豆瓣的前端脚本');
   });
 });
