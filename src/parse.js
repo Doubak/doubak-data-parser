@@ -22,7 +22,8 @@ import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from
 // 而 canonical 只比较同一 parser_version 的修订（../INGESTION.md §4.4）。
 // 0.1.0：广播正文不再包含「（全文）」这个 UI 标签，改为记 text_truncated + full_text_url。
 // 0.2.0：开始解析作品详情页，作品记录多出 aliases（又名）。
-export const PARSER_VERSION = 'doubak-data-parser/0.2.0';
+// 0.3.0：详情页 #info 整块收进 info；又名改按 ` / ` 切（裸斜杠会把 `(港/台)` 切坏）。
+export const PARSER_VERSION = 'doubak-data-parser/0.3.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */
@@ -197,9 +198,9 @@ export function parse(sources, opts = {}) {
       // **详情页只补充，不创建。** 作品记录的来源是列表页（那才是「我标记过它」
       // 的凭据）；一张详情页单独存在时，我们并不知道用户是否标记过它。
       const d = extractSubjectDetail(html, row.url);
-      if (d && d.aliases.length) {
+      if (d && (d.aliases.length || (d.info && Object.keys(d.info).length))) {
         details.set(`${d.medium}:${d.id}`, {
-          aliases: d.aliases, bundleId: src.bundleId, captureId: row.capture_id,
+          aliases: d.aliases, info: d.info, bundleId: src.bundleId, captureId: row.capture_id,
         });
       }
       continue;
@@ -361,6 +362,10 @@ function upsertSubject(store, { m, medium, observation, parserVersion, detail })
     // 「这个作品没有又名」与「我们没看过它的详情页」是两件事，
     // 混成一个的话，补抓详情页之后会冒出一批看起来像编辑的修订。
     aliases: detail?.aliases ?? null,
+    // 详情页 #info 里那一整块带标签的字段，键用豆瓣自己的标签原样存。
+    // **它不替代 raw_meta**：raw_meta 是列表页那一行的原样记录，两者来自
+    // 不同的捕获、也可能不一致，而「页面当时就是这么说的」两边都算数。
+    info: detail?.info ?? null,
     cover_url: m.coverUrl,
     raw_meta: m.rawMeta,
   };

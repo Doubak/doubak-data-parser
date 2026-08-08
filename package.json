@@ -1,6 +1,6 @@
 {
   "name": "doubak-data-parser",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "豆备 (Doubak) 的解析器——bundle → canonical。纯函数，不联网。",
   "private": true,
   "type": "module",

@@ -288,6 +288,52 @@ describe('对着真实档案端到端', () => {
     assert.deepEqual(Object.keys(byMedium).sort(), ['movie', 'music']);
   });
 
+  test('**#info 整块收进来，键是豆瓣自己的标签**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    const { subjects } = parse(openAll(DL));
+    const withInfo = subjects.filter((s) => s.revisions.at(-1).fields.info);
+
+    // 游戏与舞台剧的页面上根本没有 #info——**别在没有的地方硬造出来**。
+    const meds = {};
+    for (const s of withInfo) meds[s.medium] = (meds[s.medium] ?? 0) + 1;
+    assert.deepEqual(Object.keys(meds).sort(), ['book', 'movie', 'music']);
+    assert.ok(meds.movie > 2000, `电影只有 ${meds.movie} 个有 info`);
+
+    // 键必须是豆瓣的标签，不是我们翻译过的。
+    const movie = withInfo.find((s) => s.medium === 'movie' && s.revisions.at(-1).fields.info['导演']);
+    assert.ok(movie, '一个带导演的电影都没有');
+    assert.ok(Array.isArray(movie.revisions.at(-1).fields.info['导演']));
+  });
+
+  test('**评论区的用户名不许混进 info** —— 那是第三方内容', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // span.pl 在页面别处还用来标评论区的用户名。越界的话，几十个陌生人的 id
+    // 会变成字段名，存进档案主人的 canonical。
+    const { subjects } = parse(openAll(DL));
+    const keys = new Set();
+    for (const s of subjects) for (const k of Object.keys(s.revisions.at(-1).fields.info ?? {})) keys.add(k);
+    const looksLikeUser = [...keys].filter((k) => /^\(.*\)$/.test(k));
+    assert.deepEqual(looksLikeUser, [], `这些键像用户名：${looksLikeUser.join(' ')}`);
+  });
+
+  test('**值按 ` / ` 切，`(港/台)` 不许被切开**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 实测裸斜杠切法把 `犯罪101(港/台)` 切成了两半，4022 张页面上切坏 176 条。
+    const { subjects } = parse(openAll(DL));
+    const broken = [];
+    for (const s of subjects) {
+      for (const vs of Object.values(s.revisions.at(-1).fields.info ?? {})) {
+        for (const v of vs) {
+          // 括号只开不闭、或只闭不开 = 被从括号中间切开了
+          const open = (v.match(/[(（]/g) ?? []).length;
+          const close = (v.match(/[)）]/g) ?? []).length;
+          if (open !== close) broken.push(v);
+        }
+      }
+    }
+    assert.deepEqual(broken.slice(0, 5), [], `${broken.length} 个值的括号不配对，像是被切坏了`);
+  });
+
   test('**又名的顺序不许动，也不去重**', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 顺序是豆瓣给的，而「哪个排第一」本身就是信息（通常是最通行的那个译名）。
