@@ -13,6 +13,7 @@
 import { extractMarks } from './extract.js';
 import { extractBroadcasts } from './extract-broadcast.js';
 import { topology, assertSingleAccount } from './topology.js';
+import { extractSubjectDetail } from './extract-subject.js';
 import { extractLongform } from './extract-longform.js';
 import { digestAll, sameRevision } from './digest.js';
 import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from './authority.js';
@@ -20,7 +21,8 @@ import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from
 // 【改抽取逻辑就要推这个版本】否则重跑之后摘要变了，会被当成用户编辑——
 // 而 canonical 只比较同一 parser_version 的修订（../INGESTION.md §4.4）。
 // 0.1.0：广播正文不再包含「（全文）」这个 UI 标签，改为记 text_truncated + full_text_url。
-export const PARSER_VERSION = 'doubak-data-parser/0.1.0';
+// 0.2.0：开始解析作品详情页，作品记录多出 aliases（又名）。
+export const PARSER_VERSION = 'doubak-data-parser/0.2.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */
@@ -47,6 +49,14 @@ export function parse(sources, opts = {}) {
   const broadcasts = new Map();
   /** @type {Map<string, object>} `${kind}:${id}` → 日记 / 评论 */
   const longform = new Map();
+  /**
+   * `medium:id` → 从详情页补来的字段。
+   *
+   * **先收齐再用**，不是边读边写。解析必须与档案的处理顺序无关
+   *（canonical/INGESTION.md §5.2），而详情页与列表页谁先被读到是不一定的。
+   * @type {Map<string, {aliases: string[], bundleId: string, captureId: string}>}
+   */
+  const details = new Map();
   const warnings = [];
   const stats = {
     bundles: 0,
@@ -81,7 +91,8 @@ export function parse(sources, opts = {}) {
     for (const row of src.index) {
       const isBroadcast = row.intent === 'broadcast.timeline';
       const lfKind = row.intent === 'note.item' ? 'note' : row.intent === 'review.item' ? 'review' : null;
-      if (!isBroadcast && !lfKind && !row.intent?.startsWith('interest.list.')) continue;
+      const isDetail = row.intent === 'interest.item';
+      if (!isBroadcast && !lfKind && !isDetail && !row.intent?.startsWith('interest.list.')) continue;
 
       if (lfKind) {
         if (hasUnknownVerdict(row)) {
@@ -108,6 +119,14 @@ export function parse(sources, opts = {}) {
           continue;
         }
         work.push({ src, row, kind: 'broadcast', auth: absenceAuthority(cs.get(row.route_key), src.status) });
+        continue;
+      }
+
+      if (isDetail) {
+        // 详情页不产生新的作品记录，只给已有的补字段——记录本身来自列表页
+        // （那才是「我标记过它」的来源）。所以这里只入队，合并在下面做。
+        if (hasUnknownVerdict(row) || !isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
+        work.push({ src, row, kind: 'detail', auth: absenceAuthority(cs.get(row.route_key), src.status) });
         continue;
       }
 
@@ -140,6 +159,22 @@ export function parse(sources, opts = {}) {
 
   work.sort((a, b) => (a.row.observed_at < b.row.observed_at ? -1 : 1));
 
+  // **详情页必须全部先读完。**
+  //
+  // 它们只给作品记录补字段，而记录是列表页建的。同一趟里边读边用的话，
+  // 结果就取决于谁先被处理——而抓取顺序天然是「先列表页后详情页」，于是
+  // 补进去的东西一个都用不上。实测这个 bug：2102 部电影里只有 44 部拿到了
+  // 又名，而抽查显示 96% 的详情页上都有。
+  //
+  // 这正是 canonical/INGESTION.md §5.2 禁止的那种顺序依赖，而它**不报错**——
+  // 只是安静地少了一大半数据。
+  //
+  // 分完之后详情页还聚在一起，段缓存的命中率反而更好：它们都在同一个
+  // catalog 段里。
+  work.sort((a, b) => (a.kind === 'detail' ? 0 : 1) - (b.kind === 'detail' ? 0 : 1));
+
+  /** @type {import('./bundle-source.js').BundleSource|null} */
+  let lastSrc = null;
   for (const { src, row, kind, lfKind, medium, status, auth } of work) {
     let html;
     try {
@@ -158,18 +193,28 @@ export function parse(sources, opts = {}) {
       surface: row.surface ?? 'html',
     };
 
+    if (kind === 'detail') {
+      // **详情页只补充，不创建。** 作品记录的来源是列表页（那才是「我标记过它」
+      // 的凭据）；一张详情页单独存在时，我们并不知道用户是否标记过它。
+      const d = extractSubjectDetail(html, row.url);
+      if (d && d.aliases.length) {
+        details.set(`${d.medium}:${d.id}`, {
+          aliases: d.aliases, bundleId: src.bundleId, captureId: row.capture_id,
+        });
+      }
+      continue;
+    }
+
     if (kind === 'longform') {
       const lf = extractLongform(html, lfKind);
       if (!lf) {
         // 认不出来就报，**不猜**。正文页的结构是从真实抓取的字节里量出来的；
         // 认不出多半意味着豆瓣改版了，而那一页已经如实存进档案，改好重跑即可。
         warnings.push({ type: 'extractor_stale', capture: row.capture_id, kind: lfKind });
-        src.close();
         continue;
       }
       stats.observations += 1;
       upsertLongform(longform, { lf, account: src.manifest?.account, observation: { ...observationBase }, parserVersion });
-      src.close();
       continue;
     }
 
@@ -198,7 +243,6 @@ export function parse(sources, opts = {}) {
         stats.observations += 1;
         upsertBroadcast(broadcasts, { b, account: src.manifest?.account, observation: { ...observationBase }, parserVersion });
       }
-      src.close();
       continue;
     }
 
@@ -224,10 +268,26 @@ export function parse(sources, opts = {}) {
       const observation = { ...observationBase };
 
       upsertMark(marks, { m, medium, status, account: src.manifest?.account, observation, parserVersion, tz });
-      upsertSubject(subjects, { m, medium, observation, parserVersion });
+      upsertSubject(subjects, {
+        m, medium, observation, parserVersion,
+        detail: details.get(`${medium}:${m.subjectId}`),
+      });
     }
-    src.close();
+
+    // **段缓存只在换 bundle 时才丢。**
+    //
+    // 原来每处理完一条捕获就 close 一次，也就是把整个段缓存清掉；下一条捕获
+    // 又要把那个段从头读一遍、解一遍。列表页只有 571 张时这只是「有点慢」，
+    // 加进 2925 张作品详情页之后就变成了灾难——它们都在同一个 159 MB 的
+    // catalog 段里，于是同一个文件被读了两千多遍。
+    //
+    // work 是按 observed_at 排的，而同一份档案里的捕获时间上连成一片，所以
+    // 「换了 bundle 才清」既能让缓存一直命中，又把峰值内存压在一份档案的
+    // 段大小上。这与站点生成器里踩过的是同一个坑（那次是 8 分钟对 1.5 秒）。
+    if (lastSrc && lastSrc !== src) lastSrc.close();
+    lastSrc = src;
   }
+  if (lastSrc) lastSrc.close();
 
   return {
     topology: topo,
@@ -292,16 +352,25 @@ function upsertMark(store, { m, medium, status, account, observation, parserVers
   appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
 }
 
-function upsertSubject(store, { m, medium, observation, parserVersion }) {
+function upsertSubject(store, { m, medium, observation, parserVersion, detail }) {
   const key = `${medium}:${m.subjectId}`;
   const fields = {
     // 上游条目被删时，页面上写的「未知电影」是占位符，不是作品名。
     title: m.upstreamDeleted ? null : m.title,
-    aliases: null,
+    // 又名只在详情页上有。**没读到详情页时是 null，不是空数组**——
+    // 「这个作品没有又名」与「我们没看过它的详情页」是两件事，
+    // 混成一个的话，补抓详情页之后会冒出一批看起来像编辑的修订。
+    aliases: detail?.aliases ?? null,
     cover_url: m.coverUrl,
     raw_meta: m.rawMeta,
   };
   const digests = digestAll(fields);
+
+  // 又名来自另一张捕获，出处要跟着记——canonical 的每一条断言都得能指回
+  // WARC 里的具体字节。
+  if (detail?.captureId && !observation.capture_ids.includes(detail.captureId)) {
+    observation = { ...observation, capture_ids: [...observation.capture_ids, detail.captureId] };
+  }
 
   let rec = store.get(key);
   if (!rec) {

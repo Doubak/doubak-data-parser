@@ -274,6 +274,30 @@ describe('对着真实档案端到端', () => {
     }
   });
 
+  test('**又名要从作品详情页读出来**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 详情页此前一张都没被解析过——aliases 字段早在 schema 里，值却硬编码成 null。
+    const { subjects } = parse(openAll(DL));
+    const withAlias = subjects.filter((s) => (s.revisions.at(-1).fields.aliases ?? []).length);
+    assert.ok(withAlias.length > 1500, `只有 ${withAlias.length} 个有又名，抽查显示电影 94% 都有`);
+
+    // **只有电影和音乐有这一栏**，书 / 游戏 / 舞台剧的页面上根本没有。
+    // 这里守的是「别在没有的地方硬造出来」。
+    const byMedium = {};
+    for (const s of withAlias) byMedium[s.medium] = (byMedium[s.medium] ?? 0) + 1;
+    assert.deepEqual(Object.keys(byMedium).sort(), ['movie', 'music']);
+  });
+
+  test('**又名的顺序不许动，也不去重**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 顺序是豆瓣给的，而「哪个排第一」本身就是信息（通常是最通行的那个译名）。
+    const { subjects } = parse(openAll(DL));
+    const s = subjects.find((x) => x.id === '35267208' || (x.revisions.at(-1).fields.aliases ?? []).length > 2);
+    assert.ok(s, '找不到一个有多个又名的作品');
+    const a = s.revisions.at(-1).fields.aliases;
+    assert.ok(a.every((x) => x === x.trim() && x.length), '每一项都该是去掉首尾空白的非空串');
+  });
+
   test('**追加是纯增的** —— 多喂一份档案不会丢掉任何东西', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // canonical/INGESTION.md §5.1。做成对全集的纯函数，这条性质是免费的；
