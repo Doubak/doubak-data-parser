@@ -164,9 +164,18 @@ export function parse(sources, opts = {}) {
         warnings.push({ type: 'no_owner', capture: row.capture_id });
         continue;
       }
-      const { broadcasts: bs, idless: bIdless } = extractBroadcasts(html, owner);
+      const { broadcasts: bs, idless: bIdless, unresolvedImages } = extractBroadcasts(html, owner);
       if (bIdless > 0) {
         warnings.push({ type: 'extractor_stale', capture: row.capture_id, kind: 'broadcast', idless: bIdless });
+      }
+      if (unresolvedImages > 0) {
+        // 附图容器在，图却一张都没抽到——豆瓣换了渲染方式，而这种失败是**静默**的：
+        // 「没有图」和「不认识这些图」在数据上一模一样。必须报出来，否则一次改版
+        // 会让此后所有抓取都悄悄丢图，而且事后无从分辨哪些广播本来就没图。
+        warnings.push({
+          type: 'extractor_stale', capture: row.capture_id, kind: 'broadcast_images',
+          unresolved: unresolvedImages,
+        });
       }
       for (const b of bs) {
         stats.observations += 1;
@@ -338,6 +347,9 @@ function upsertBroadcast(store, { b, account, observation, parserVersion }) {
     status: b.status,
     target_type: b.targetType,
     target_id: b.targetId,
+    // 附图。字节在档案里，但 canonical 里没有任何东西指向它们的话，站点生成器
+    // 就无从摆放——那正是日记内嵌图踩过的坑，同一个形状。
+    images: b.images,
   };
   const digests = digestAll(fields);
 

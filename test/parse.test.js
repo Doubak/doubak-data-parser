@@ -7,7 +7,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from '../src/authority.js';
 import { fieldDigest, digestAll, sameRevision } from '../src/digest.js';
@@ -212,6 +213,42 @@ describe('对着真实档案端到端', () => {
     assert.ok(tombs.every((s) => s.revisions.every((r) => r.fields.title === null)));
 
     assert.deepEqual(warnings, [], '真实档案上不该有任何告警');
+  });
+
+  test('**广播引用的图 == 抓取端真的取回来的图**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 这一条同时守着解析端与抓取端：两边对「哪些图算数」的判据必须逐字一致，
+    // 而两边不一致的后果是不对称的、都很难发现——
+    //
+    //   解析端更松 → canonical 里出现抓取端从没取过的 URL，站点上是个死链
+    //   解析端更严 → 字节明明在档案里，canonical 却不提它，等于悄悄丢了一张图
+    //
+    // 写成集合相等而不是数量相等：数量对得上、内容错位的情况是存在的
+    // （第一版按主机名收窄，漏掉 qnmob3 的 2 张、又多算了别的 2 张就会刚好抵消）。
+    const { broadcasts } = parse(openAll(DL));
+    const referenced = new Set(
+      broadcasts.flatMap((b) => b.revisions.flatMap((r) => r.fields.images ?? [])),
+    );
+
+    /** 档案 index 里 verdict=ok 的广播附图。 */
+    const captured = new Set();
+    for (const dir of readdirSync(DL)) {
+      const d = join(DL, dir);
+      let idx;
+      try { idx = readdirSync(d).find((f) => f.startsWith('index-') && f.endsWith('.ndjson')); } catch { continue; }
+      if (!idx) continue;
+      for (const line of readFileSync(join(d, idx), 'utf-8').split('\n')) {
+        if (!line.trim()) continue;
+        const row = JSON.parse(line);
+        if (row.route_key === 'asset.status_photo' && row.verdict === 'ok') captured.add(row.url);
+      }
+    }
+
+    assert.ok(captured.size > 100, `档案里只有 ${captured.size} 张广播附图，像是没读到`);
+    assert.deepEqual(
+      [...referenced].sort(), [...captured].sort(),
+      'canonical 引用的图与档案里真的有的图对不上',
+    );
   });
 
   test('**追加是纯增的** —— 多喂一份档案不会丢掉任何东西', (t) => {

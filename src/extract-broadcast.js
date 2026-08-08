@@ -46,6 +46,94 @@ const ACTION_STATUS = {
 };
 
 /**
+ * 广播附图，三种写法并存。
+ *
+ * **这三种不是历史演进，是同时存在的。** 这一点是实测出来的，不是推出来的——
+ * 也正因为如此，没有一种是能靠猜写对的。
+ *
+ *     新版 a  <script> 里 `var photos = [ {image: {raw: {url}, …}} ];`
+ *     新版 b  同一段 JSON，但**没有 raw**，只有 `image.large.url`
+ *     老版    `data-raw-src="…"`（旁边的 data-median-src / data-small-src 是缩略版，不要）
+ *
+ * 抽取路径靠的是具体写法（变量名、属性名）。豆瓣哪天换一种渲染方式，两条路
+ * **都会一声不吭地返回空**——而「这条广播没有图」和「这条广播的图我们不认识了」
+ * 在数据上完全一样，事后无从分辨。所以另外看一眼容器 class：那是另一套标记，
+ * 不随 JSON 的写法变。容器在而一张都没抽到，就是结构变了，必须报。
+ *
+ *     新版容器  <div class="pics-wrapper">                     里面是 var photos
+ *     老版容器  <div class="attachments-saying attachments-pic">  里面是 data-raw-src
+ *
+ * **`group-pic` 不在这张表里，尽管它看起来最像。** 那是标记类广播旁边的作品封面
+ * （外面裹着 `recommed-pics`，链接指向作品，`target_type: "ilmen"`），是豆瓣的目录
+ * 数据，不是用户上传的东西。把它算进来的话，光第一份档案就误报几十条「结构变了」——
+ * 而一条天天出现的假告警会让真的那条也被忽略。
+ */
+const PHOTO_CONTAINER = /pics-wrapper|attachments-pic/;
+
+/**
+ * 是不是一张 doubanio 上的图。
+ *
+ * **这个判据必须与抓取端逐字一致**（extension `classifier.js` 的同名函数）。
+ * 两边不一致的后果是不对称的、而且都很难发现：
+ *
+ *   - 解析端**更松** → canonical 里出现一个抓取端从没取过的 URL，站点上是个死链
+ *   - 解析端**更严** → 字节明明在档案里，canonical 却不提它，等于悄悄丢了一张图
+ *
+ * 所以这里**不按主机名收窄**。第一版写成 `img\d*\.doubanio\.com` 就漏了
+ * `qnmob3.doubanio.com`——那是同一批广播里的另一个图片主机，实测存在。
+ * 「从手上的样本推出一个封闭集合」是这个项目反复栽的那个跟头，这是第四次。
+ */
+function isDoubanioImage(url) {
+  if (!/^https:\/\/[a-z0-9.]*doubanio\.com\//i.test(url)) return false;
+  return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url);
+}
+
+/**
+ * 抽出**这一条**广播里的附图。
+ *
+ * 与抽取器整体同一个判据：只在单条广播的 wrapper 内找。页面级地找会把转发进来的
+ * 别人的图算到自己头上——实测那 175 张广播页上，30 张图属于别人。
+ *
+ * @param {string} seg 单条广播的 HTML
+ * @returns {{urls: string[], unresolved: number}}
+ */
+function extractImages(seg) {
+  /** @type {Set<string>} */
+  const urls = new Set();
+  let unresolved = 0;
+
+  for (const m of seg.matchAll(/var\s+photos\s*=\s*(\[[\s\S]*?\])\s*;/g)) {
+    let list;
+    try {
+      // 只截到 `];` 为止——整段 script 后面还有别的语句，连着喂给 JSON.parse
+      // 必然失败，而那会把「有图但解析不了」变成「没有图」。
+      list = JSON.parse(m[1]);
+    } catch {
+      unresolved += 1;
+      continue;
+    }
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      // 优先原件，退而求其次取 large。**不取 small**：那是缩略图，
+      // 而「档案里存的是当时看到的那张」这件事只有原件担得起。
+      const raw = entry?.image?.raw?.url;
+      const large = entry?.image?.large?.url;
+      const pick = typeof raw === 'string' && raw ? raw : large;
+      if (typeof pick === 'string' && isDoubanioImage(pick)) urls.add(pick);
+      else unresolved += 1;
+    }
+  }
+
+  for (const m of seg.matchAll(/data-raw-src="(https:\/\/[^"]+)"/g)) {
+    if (isDoubanioImage(m[1])) urls.add(m[1]);
+    else unresolved += 1;
+  }
+
+  if (urls.size === 0 && PHOTO_CONTAINER.test(seg)) unresolved += 1;
+  return { urls: [...urls], unresolved };
+}
+
+/**
  * @typedef {object} RawBroadcast
  * @property {string} sid            data-sid，广播的身份
  * @property {string|null} postedAt  秒级时间戳（原始字符串）
@@ -55,15 +143,16 @@ const ACTION_STATUS = {
  * @property {string|null} targetType data-target-type
  * @property {string|null} targetId   data-object-id
  * @property {string|null} url
+ * @property {string[]} images       附图原件 URL。**空数组不是 null**——见下
  */
 
 /**
  * @param {string} html
  * @param {string} ownerUserId  档案主人的数字 id。**必需**——没有它就分不清哪些是转发来的
- * @returns {{broadcasts: RawBroadcast[], skippedOthers: number, idless: number}}
+ * @returns {{broadcasts: RawBroadcast[], skippedOthers: number, idless: number, unresolvedImages: number}}
  */
 export function extractBroadcasts(html, ownerUserId) {
-  if (typeof html !== 'string') return { broadcasts: [], skippedOthers: 0, idless: 0 };
+  if (typeof html !== 'string') return { broadcasts: [], skippedOthers: 0, idless: 0, unresolvedImages: 0 };
   if (!ownerUserId) throw new Error('extractBroadcasts 需要 ownerUserId，否则会把别人的广播也存下来');
 
   const at = [];
@@ -75,6 +164,7 @@ export function extractBroadcasts(html, ownerUserId) {
   const seen = new Set();
   let skippedOthers = 0;
   let idless = 0;
+  let unresolvedImages = 0;
 
   for (let i = 0; i < at.length; i++) {
     const seg = html.slice(at[i], i + 1 < at.length ? at[i + 1] : undefined);
@@ -93,6 +183,9 @@ export function extractBroadcasts(html, ownerUserId) {
     if (seen.has(sid[1])) continue;
     seen.add(sid[1]);
 
+    const photos = extractImages(seg);
+    unresolvedImages += photos.unresolved;
+
     const action = /class="lnk-people">[^<]*<\/a>\s*([^<\s][^<]{0,6}?)\s*</.exec(seg)?.[1]?.trim() ?? null;
     const quote = /<blockquote[^>]*>\s*<p[^>]*>([\s\S]*?)<\/p>/.exec(seg)?.[1] ?? null;
 
@@ -107,10 +200,13 @@ export function extractBroadcasts(html, ownerUserId) {
       targetType: /data-target-type="(\w+)"/.exec(seg)?.[1] ?? null,
       targetId: /data-object-id="(\d+)"/.exec(seg)?.[1] ?? null,
       url: /data-status-url="([^"]+)"/.exec(seg)?.[1] ?? null,
+      // **空数组，不是 null。** 广播页整个抓到了，就等于看清了「这条有没有图」——
+      // 这与「没抽到」是两回事。null 会让下游分不清「确认没有」和「没看过」。
+      images: photos.urls,
     });
   }
 
-  return { broadcasts, skippedOthers, idless };
+  return { broadcasts, skippedOthers, idless, unresolvedImages };
 }
 
 /** 剥标签，保留文字。**不做任何归一化**——空白与全半角都是内容的一部分。 */
