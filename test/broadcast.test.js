@@ -72,6 +72,36 @@ describe('抽取', () => {
   });
 });
 
+describe('豆瓣把长广播截断了', () => {
+  const wrap = (inner) => `<div class="new-status status-wrapper" data-uid="1" data-sid="9">`
+    + `<span class="created_at" title="2025-04-14 18:47:50"></span>`
+    + `<blockquote><p>${inner}</p></blockquote></div>`;
+
+  test('**认那个 `<a>` 元素，不认「（全文）」这三个字**', () => {
+    // 按文字认的话，一条用户自己打了「（全文）」结尾的广播会被误判成截断——
+    // 给一条完整正文盖上「不完整」的戳，和漏判一样是在说假话。
+    const cut = extractBroadcasts(
+      wrap('开头一段…<a href="https://www.douban.com/note/872015292/">（全文）</a>'), '1');
+    assert.equal(cut.broadcasts[0].fullTextUrl, 'https://www.douban.com/note/872015292/');
+
+    const typed = extractBroadcasts(wrap('我写完了（全文）'), '1');
+    assert.equal(typed.broadcasts[0].fullTextUrl, null, '用户自己打的字不该被当成截断');
+    assert.equal(typed.broadcasts[0].text, '我写完了（全文）');
+  });
+
+  test('**「（全文）」不进正文** —— 它是豆瓣的链接文字，不是用户写的字', () => {
+    // 与「未知作品」「1740人浏览」「暂无封面」同一条规则：占位符不是内容。
+    const r = extractBroadcasts(
+      wrap('开头一段…<a href="https://www.douban.com/note/1/">（全文）</a>'), '1');
+    assert.equal(r.broadcasts[0].text, '开头一段…');
+    assert.ok(!/全文/.test(r.broadcasts[0].text));
+  });
+
+  test('没被截断的就是 null，不是空串', () => {
+    assert.equal(extractBroadcasts(wrap('短广播'), '1').broadcasts[0].fullTextUrl, null);
+  });
+});
+
 describe('对着真实档案', () => {
   const DL = '/home/mewx/downloads/20260806';
 

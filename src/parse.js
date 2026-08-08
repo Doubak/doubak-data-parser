@@ -17,7 +17,10 @@ import { extractLongform } from './extract-longform.js';
 import { digestAll, sameRevision } from './digest.js';
 import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from './authority.js';
 
-export const PARSER_VERSION = 'doubak-data-parser/0.0.1';
+// 【改抽取逻辑就要推这个版本】否则重跑之后摘要变了，会被当成用户编辑——
+// 而 canonical 只比较同一 parser_version 的修订（../INGESTION.md §4.4）。
+// 0.1.0：广播正文不再包含「（全文）」这个 UI 标签，改为记 text_truncated + full_text_url。
+export const PARSER_VERSION = 'doubak-data-parser/0.1.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */
@@ -365,6 +368,12 @@ function upsertBroadcast(store, { b, account, observation, parserVersion }) {
     // 附图。字节在档案里，但 canonical 里没有任何东西指向它们的话，站点生成器
     // 就无从摆放——那正是日记内嵌图踩过的坑，同一个形状。
     images: b.images,
+    // 正文是不是被豆瓣截断了。**不记的话档案存着半截正文却不说**，
+    // 读者无从分辨——与「浏览计数进正文」同一类错：不报错，只是说假话。
+    text_truncated: Boolean(b.fullTextUrl),
+    // 全文在哪。实测那两条都指向一篇日记，而两篇日记的全文早就在档案里了——
+    // 所以这不是缺数据，是缺一个指针。
+    full_text_url: b.fullTextUrl ?? null,
   };
   const digests = digestAll(fields);
 

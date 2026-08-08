@@ -51,6 +51,11 @@ function summarize({ marks, broadcasts, longform }, warnings) {
     broadcast_observations: broadcasts.reduce(
       (n, b) => n + b.revisions.reduce((k, r) => k + r.observations.length, 0), 0,
     ),
+    // 被豆瓣截断的正文有几条。**判据是结构不是文字**：用户自己打了「（全文）」
+    // 结尾的那条不算，给完整正文盖上「不完整」的戳和漏判一样是在说假话。
+    truncated: broadcasts.filter(
+      (b) => b.revisions.some((r) => r.fields.text_truncated),
+    ).length,
     // 只收非 null 的——「收藏图书到豆列」映射不到三种标记状态，那时必须是 null。
     broadcast_statuses: [...new Set(
       broadcasts.flatMap((b) => b.revisions.map((r) => r.fields.status)).filter(Boolean),

@@ -134,6 +134,34 @@ function extractImages(seg) {
 }
 
 /**
+ * 豆瓣把超长广播截断之后留下的那个「（全文）」链接。
+ *
+ * ## 按结构认，不按文字认
+ *
+ * 判据是 blockquote 末尾的 `<a href="…">（全文）</a>` 这个**元素**，不是正文
+ * 「以（全文）三个字结尾」。后者会把一条**用户自己打了「（全文）」结尾**的广播
+ * 误判成截断——而误判的后果是给一条完整的正文盖上「不完整」的戳，
+ * 那和漏判一样是在说假话。
+ *
+ * ## 它指向的地方通常已经在档案里了
+ *
+ * 实测那两条：`href` 都指向一篇**日记**，而两篇日记的全文早就抓下来了
+ * （`longform.ndjson` 里的 872015292 与 868128497）。
+ *
+ * 所以这不是「档案缺了数据」，是「档案缺了一个指针」——全文一直都在，
+ * 只是没有任何东西说这条广播的正文是它的开头。修法因此便宜得多：
+ * **记下来，不用重抓。**
+ *
+ * @param {string} seg 单条广播的 HTML
+ * @returns {string|null} 全文的 URL；没被截断就是 null
+ */
+function fullTextUrl(seg) {
+  const q = /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/.exec(seg);
+  if (!q) return null;
+  return /<a href="([^"]+)"[^>]*>（全文）<\/a>\s*<\/p>/.exec(q[1])?.[1] ?? null;
+}
+
+/**
  * @typedef {object} RawBroadcast
  * @property {string} sid            data-sid，广播的身份
  * @property {string|null} postedAt  秒级时间戳（原始字符串）
@@ -144,6 +172,7 @@ function extractImages(seg) {
  * @property {string|null} targetId   data-object-id
  * @property {string|null} url
  * @property {string[]} images       附图原件 URL。**空数组不是 null**——见下
+ * @property {string|null} fullTextUrl 正文被豆瓣截断时，指向全文的 URL；没截断是 null
  */
 
 /**
@@ -185,9 +214,14 @@ export function extractBroadcasts(html, ownerUserId) {
 
     const photos = extractImages(seg);
     unresolvedImages += photos.unresolved;
+    const fullText = fullTextUrl(seg);
 
     const action = /class="lnk-people">[^<]*<\/a>\s*([^<\s][^<]{0,6}?)\s*</.exec(seg)?.[1]?.trim() ?? null;
-    const quote = /<blockquote[^>]*>\s*<p[^>]*>([\s\S]*?)<\/p>/.exec(seg)?.[1] ?? null;
+    let quote = /<blockquote[^>]*>\s*<p[^>]*>([\s\S]*?)<\/p>/.exec(seg)?.[1] ?? null;
+    // 「（全文）」是豆瓣的链接文字，**不是用户写的字**，所以不进正文——
+    // 与「未知作品」「1740人浏览」「暂无封面」是同一条规则：占位符不是内容。
+    // 截断这件事本身记在 fullTextUrl 上，不靠正文末尾的字来表达。
+    if (quote && fullText) quote = quote.replace(/<a href="[^"]*"[^>]*>（全文）<\/a>\s*$/, '');
 
     broadcasts.push({
       sid: sid[1],
@@ -203,6 +237,10 @@ export function extractBroadcasts(html, ownerUserId) {
       // **空数组，不是 null。** 广播页整个抓到了，就等于看清了「这条有没有图」——
       // 这与「没抽到」是两回事。null 会让下游分不清「确认没有」和「没看过」。
       images: photos.urls,
+      // 被截断时记下全文在哪。**不记的话档案里存的是半截正文，而且没有任何
+      // 字段说它是半截的**——读者无从分辨，这与「浏览计数进正文」是同一类错：
+      // 不报错，只是让档案说了假话。
+      fullTextUrl: fullText,
     });
   }
 

@@ -251,6 +251,29 @@ describe('对着真实档案端到端', () => {
     );
   });
 
+  test('**被截断的广播，全文其实已经在档案里了**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 这一条是这次修复的要点：截断不是「档案缺了数据」，是「档案缺了一个指针」。
+    // 实测那两条的 full_text_url 都指向一篇日记，而两篇日记的全文早就抓下来了。
+    const { broadcasts, longform } = parse(openAll(DL));
+    const cut = broadcasts.filter((b) => b.revisions.at(-1).fields.text_truncated);
+    assert.ok(cut.length > 0, '真实档案里本该有被截断的广播，不然这条测试是空的');
+
+    const haveLongform = new Set(longform.map((r) => r.upstream_id));
+    for (const b of cut) {
+      const url = b.revisions.at(-1).fields.full_text_url;
+      assert.ok(url, '标了截断就必须给出全文在哪');
+      const id = /\/(?:note|topic|review)\/(\d+)/.exec(url)?.[1];
+      assert.ok(id && haveLongform.has(id), `全文 ${url} 不在档案里 —— 那才是真的缺数据`);
+    }
+
+    // 而且正文里不该残留那个 UI 标签。
+    for (const b of broadcasts) {
+      const t2 = b.revisions.at(-1).fields.text ?? '';
+      assert.ok(!/（全文）$/.test(t2.trimEnd()), `广播 ${b.upstream_id} 的正文里残留了「（全文）」`);
+    }
+  });
+
   test('**追加是纯增的** —— 多喂一份档案不会丢掉任何东西', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // canonical/INGESTION.md §5.1。做成对全集的纯函数，这条性质是免费的；
