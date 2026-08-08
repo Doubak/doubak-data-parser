@@ -12,6 +12,7 @@
 
 import { extractMarks } from './extract.js';
 import { extractBroadcasts } from './extract-broadcast.js';
+import { topology, assertSingleAccount } from './topology.js';
 import { extractLongform } from './extract-longform.js';
 import { digestAll, sameRevision } from './digest.js';
 import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from './authority.js';
@@ -29,6 +30,11 @@ const STATUS = { collect: 'done', do: 'doing', wish: 'wish' };
 export function parse(sources, opts = {}) {
   const parserVersion = opts.parserVersion ?? PARSER_VERSION;
   const tz = opts.timezone ?? 'Asia/Shanghai';
+
+  // 先体检，再解析。**分叉不拦**——两条分支只是同一个账号的两批观测，合并起来是
+  // 信息更多而不是信息打架（理由与实测见 topology.js）。真该拦的是另外两件事。
+  const topo = topology(sources);
+  assertSingleAccount(topo);
 
   /** @type {Map<string, object>} 身份键 → 记录 */
   const marks = new Map();
@@ -121,6 +127,14 @@ export function parse(sources, opts = {}) {
       work.push({ src, row, kind: 'mark', medium, status, auth: absenceAuthority(cs.get(row.route_key), src.status) });
     }
   }
+  for (const d of topo.danglingFloors) {
+    // 增量只看了地板以上，而地板底下那段**谁也没看过**——那份档案不在目录里。
+    // 这是个真实的覆盖空洞，而且它看起来一切正常：条数、连续性、其余告警全是好的。
+    warnings.push({
+      type: 'missing_floor_bundle', bundle: d.bundle, route_key: d.routeKey, missing: d.missing,
+    });
+  }
+
   work.sort((a, b) => (a.row.observed_at < b.row.observed_at ? -1 : 1));
 
   for (const { src, row, kind, lfKind, medium, status, auth } of work) {
@@ -213,6 +227,7 @@ export function parse(sources, opts = {}) {
   }
 
   return {
+    topology: topo,
     marks: [...marks.values()],
     subjects: [...subjects.values()],
     broadcasts: [...broadcasts.values()],

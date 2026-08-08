@@ -24,7 +24,7 @@ if (sources.length === 0) {
 }
 
 const t0 = Date.now();
-const { marks, subjects, broadcasts, longform, warnings, stats } = parse(sources);
+const { marks, subjects, broadcasts, longform, warnings, stats, topology } = parse(sources);
 
 mkdirSync(outDir, { recursive: true });
 const ndjson = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
@@ -32,6 +32,19 @@ writeFileSync(join(outDir, 'marks.ndjson'), ndjson(marks));
 writeFileSync(join(outDir, 'subjects.ndjson'), ndjson(subjects));
 writeFileSync(join(outDir, 'broadcasts.ndjson'), ndjson(broadcasts));
 writeFileSync(join(outDir, 'longform.ndjson'), ndjson(longform));
+
+// **把档案的拓扑说出来，但不替用户取舍。** 多个根、分叉都很正常（删掉一份重抓、
+// 换台机器、同一天跑两次增量都会分叉），而分叉不是矛盾：捕获是带时间戳的观测，
+// 两条分支只是同一个账号的两批观测。挑一条链解析反而会丢东西。
+//
+// 说出来是因为「我到底喂进去了什么」应该看得见——而不是因为它需要用户做决定。
+if (topology.roots.length > 1 || topology.forks.length) {
+  const short = (id) => id.slice(-6);
+  const bits = [`${topology.roots.length} 个起点`];
+  if (topology.forks.length) bits.push(`${topology.forks.length} 处分叉`);
+  console.log(`\n档案不是一条单链：${bits.join('，')}（起点 ${topology.roots.map(short).join('、')}）`);
+  console.log('  分叉不影响结果——合并的是观测，不是结论。挑一条链解析反而会丢掉另一条上的东西。');
+}
 
 const revs = marks.reduce((n, m) => n + m.revisions.length, 0);
 console.log(`档案 ${stats.bundles} 份 · 列表页 ${stats.pages} 张 · 观测 ${stats.observations} 次 · ${Date.now() - t0} ms`);
