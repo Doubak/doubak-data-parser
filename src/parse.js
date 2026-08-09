@@ -27,7 +27,10 @@ import {
 // 0.3.0：详情页 #info 整块收进 info；又名改按 ` / ` 切（裸斜杠会把 `(港/台)` 切坏）。
 // 0.4.0：HTML 实体收敛成一份实现（src/html-entities.js）。标记列表页原来一个实体都不解，
 //        于是 `&#34;` 原样进了 canonical，被站点生成器忠实地印在页面上。
-export const PARSER_VERSION = 'doubak-data-parser/0.4.0';
+// 0.5.0：音乐与舞台剧的短评原来一条都抽不到（它们的短评裸在 <li> 里，没有
+//        `<span class="comment">`）；长文正文的段落、点列表不再粘成一坨，
+//        日记正文不再吞进豆瓣的频道标签与版权声明。
+export const PARSER_VERSION = 'doubak-data-parser/0.5.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */

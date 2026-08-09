@@ -67,6 +67,61 @@ describe('日记', () => {
   test('认不出来就返回 null，不猜', () => {
     assert.equal(extractLongform('<html><body>被拦了</body></html>', 'note'), null);
   });
+
+  test('**点列表要留成点列表**', () => {
+    // 只剥标签的话五项会粘成一行，而且最后一项还会粘上后面那一段。实测那篇讲
+    // 绑定手机号的日记变成了 `ck=JBf5old_phone=+86xxxxxxxxxxxarea_code=+86 …`
+    // ——与「图注和下一段黏成一句」是同一个错：那已经不是用户写的字了，
+    // 而且它不报错，只是读起来像乱码。
+    const r = extractLongform(notePage('1', '<p data-page="0">前一段：</p>'
+      + '<ul><li class="unordered-list-item">ck=JBf5</li>'
+      + '<li class="unordered-list-item">area_code=+86</li></ul>'
+      + '<p data-page="0">后一段。</p>'), 'note');
+    assert.equal(r.body, '前一段：\n\n- ck=JBf5\n- area_code=+86\n\n后一段。');
+  });
+
+  test('列表项之间不空行 —— 空行会变成「松散列表」，行距大一倍', () => {
+    const r = extractLongform(notePage('1', '<ul><li>甲</li><li>乙</li></ul>'), 'note');
+    assert.equal(r.body, '- 甲\n- 乙');
+  });
+
+  test('**段与段之间要空一行**，否则 CommonMark 把它当段内软换行', () => {
+    // 只给一个 `\n` 的话，渲染出来是一个空格——实测那篇日记的三段在页面上并成了
+    // 一整段。
+    const r = extractLongform(notePage('1', '<p data-page="0">第一段</p><p data-page="0">第二段</p>'), 'note');
+    assert.equal(r.body, '第一段\n\n第二段');
+  });
+
+  test('**豆瓣的频道标签与版权声明不许进正文** —— 那不是用户写的字', () => {
+    // `#link-report` 与页脚之间还夹着 div.mod-tags（频道标签）、投诉按钮、
+    // div.copyright-claim。不收紧的话正文末尾会挂上「科技 / 生活 /
+    // 本文版权归 X 所有…」。与「未知作品」「1740人浏览」同一条规则：
+    // 页面装潢不是内容。
+    const page = `<html><body>
+      <div id="note-1" class="note-container" data-url="https://www.douban.com/note/1/">
+        <h1>标题在这</h1><span class="pub-date">2025-04-14 18:47:50 澳大利亚</span>
+        <div id="link-report">
+          <div class="note"><p data-page="0">这是我写的</p></div>
+          <div class="mod-tags"><a href="#">科技</a><a href="#">生活</a></div>
+          <div class="copyright-claim original"><p>本文版权归 MewX 所有，任何形式转载请联系作者。</p></div>
+        </div>
+        <div id="note_1_footer">1740人浏览</div>
+      </div></body></html>`;
+    const r = extractLongform(page, 'note');
+    assert.equal(r.body, '这是我写的');
+  });
+
+  test('**认不出 `div.note` 就退回整段，绝不返回 null**', () => {
+    // 手上只有 2 篇 `/note/` 带这个容器。n=2 推不出封闭的形状集合——这个项目
+    // 已经在这上面栽过四次。多几行页面装潢是难看，丢掉整篇正文是灾难。
+    const page = `<html><body>
+      <div id="note-1" data-url="https://www.douban.com/note/1/">
+        <h1>标题在这</h1><span class="pub-date">2025-04-14 18:47:50 澳大利亚</span>
+        <div id="link-report"><p data-page="0">换了个容器的正文</p></div>
+        <div id="note_1_footer">1740人浏览</div>
+      </div></body></html>`;
+    assert.equal(extractLongform(page, 'note').body, '换了个容器的正文');
+  });
 });
 
 describe('评论', () => {

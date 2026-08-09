@@ -72,11 +72,14 @@ describe('四个抽取器都真的解实体', () => {
   // 这个 describe 就是那份「别忘了」的清单。
 
   test('标记列表页：标题与短评', () => {
+    // 结构照真实页面来：短评在操作栏前面那个 `<li>` 里（见 extract.js 的
+    // listComment）。缺了操作栏那一行的话短评根本抽不到——这正是它的判据。
     const html = `
       <div class="item">
         <li class="title"><a href="https://movie.douban.com/subject/1/"><em>木乃伊 &#39;95</em></a></li>
-        <span class="date">2024-01-02</span>
-        <span class="comment">感谢up主&#34;半支烟&#34;的解说</span>
+        <li><span class="rating4-t"></span><span class="date">2024-01-02</span></li>
+        <li><span class="comment">感谢up主&#34;半支烟&#34;的解说</span></li>
+        <li class="clearfix opt-ln"><a>修改</a></li>
       </div>`;
     const { marks } = extractMarks(html, 'movie');
     assert.equal(marks.length, 1);

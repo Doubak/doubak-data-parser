@@ -57,6 +57,35 @@ function sliceDiv(html, openAt) {
   return null; // 标签没配平——宁可返回 null，也不返回半截正文
 }
 
+/**
+ * 在 `#link-report` 与页脚之间，再往里收一层到 `<div class="note">`。
+ *
+ * 那一段里除了正文，还夹着**豆瓣自己的东西**：`div.mod-tags`（频道标签）、
+ * `div#link-report_note`（投诉按钮）、`div.copyright-claim`。不收的话，用户那篇
+ * 日记的正文末尾会挂上
+ *
+ *     科技
+ *     生活
+ *     本文版权归 MewX 所有，任何形式转载请联系作者。
+ *     了解版权计划
+ *
+ * ——而这几行**不是用户写的字**。与「未知作品」「1740人浏览」「（全文）」同一条规则：
+ * 页面装潢不是内容。它们不像浏览计数那样会变，所以不会伪造修订；但它会进正文摘要，
+ * 也会印在生成的站点上。
+ *
+ * **找不到就退回整段，绝不返回 null。** 实测手上只有 2 篇 `/note/` 有这个容器
+ * （另有 1 篇 `/topic/` 走 `.rich-content`、2 篇评论两者都没有）——n=2 推不出一个
+ * 封闭的形状集合，这个项目已经在这上面栽过四次。收紧只在认得出结构时生效，
+ * 认不出就维持原样：多几行页面装潢是难看，丢掉整篇正文是灾难。
+ *
+ * @param {string} seg `#link-report` 到页脚之间的那一段
+ */
+function noteBody(seg) {
+  const at = /<div class="note"[^>]*>/.exec(seg)?.index ?? -1;
+  if (at < 0) return seg;
+  return sliceDiv(seg, at) ?? seg;
+}
+
 /** 剥标签，保留文字与换行。正文里的 `<br>` 是内容的一部分。 */
 function bodyText(html) {
   // 实体在**剥完标签之后**才解。反过来的话 `&lt;script&gt;` 会先变成
@@ -83,7 +112,31 @@ function bodyText(html) {
     // 而这一步是**保留**不是**解释**——URL 原样，不改尺寸、不换 CDN。
     .replace(/<img[^>]+src="(https:\/\/[^"]+)"[^>]*>/gi, '\n![]($1)\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
+    // **段之间要空一行。** 只给一个 `\n` 的话，CommonMark 把它当作段内的软换行，
+    // 渲染出来是一个空格——实测那篇日记的三段在页面上并成了一整段。
+    .replace(/<\/p>/gi, '\n\n')
+    // **列表项要留成列表项。** 只剥标签的话五个 `<li>` 会粘成一行，而且最后一项
+    // 会接着粘上后面那一段：实测那篇讲绑定手机号的日记，
+    //
+    //     - ck=JBf5
+    //     - old_phone=+86xxxxxxxxxxx
+    //     - area_code=+86 (这里错了…)
+    //
+    // 变成了 `ck=JBf5old_phone=+86xxxxxxxxxxxarea_code=+86 (这里错了…)`——
+    // 与「图注和下一段黏成一句」是同一个错：**那已经不是用户写的字了**，
+    // 而且它不报错，只是读起来像乱码。
+    //
+    // 一律写成 `- `。**不去区分 `<ol>`**：真实档案里 5 篇长文共 10 个列表全是
+    // `<ul>`，一个 `<ol>` 都没有，而按 n=0 去猜有序列表该怎么编号，猜错的方向是
+    // 把用户没写的序号写进档案。真遇到再按实测加。
+    //
+    // 没有对应的 `</li>` 规则：下一个 `<li>` 自己带着换行来。两边都加的话每项之间
+    // 会空一行，而 CommonMark 把那叫「松散列表」——每一项都被包进 `<p>`，行距大一倍。
+    // 用户写的是一串挨着的条目，就该渲染成一串挨着的条目。
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    // 列表结束要空一行，否则后面那一段会被当成最后一项的续行吞进去
+    // （CommonMark 的 lazy continuation）。
+    .replace(/<\/(ul|ol)>/gi, '\n\n')
     // `</div>` 也算断开。不加这一条，图注会和下一段黏成一句——实测那篇带图日记
     // 变成了「长这样咯就是然后备份下来的数据…」。**那已经不是用户写的字了。**
     .replace(/<\/div>/gi, '\n')
@@ -146,6 +199,7 @@ function note(html) {
   const full = new RegExp(`id="link-report"[^>]*>([\\s\\S]*?)<div[^>]*id="note_${id}_footer"`).exec(html);
 
   const pub = /class="pub-date">\s*([\d-]{10}[\s\d:]{0,9})\s*([^<]*)/.exec(html);
+  const body = full ? bodyText(noteBody(full[1])) : null;
   return {
     id,
     kind: 'note',
@@ -153,7 +207,7 @@ function note(html) {
     publishedAt: pub?.[1]?.trim() ?? null,
     // 发布地（「澳大利亚」）。豆瓣 2022 年后才有，早年的日记没有。
     location: pub?.[2]?.trim() || null,
-    body: full ? bodyText(full[1]) : null,
+    body,
     url: /data-url="(https:\/\/[^"]*\/note\/\d+\/?)"/.exec(html)?.[1] ?? null,
     rating: null,
     subjectUrl: null,

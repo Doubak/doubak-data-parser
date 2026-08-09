@@ -48,8 +48,9 @@ const FIELD = {
     game: /data-rating="(\d)"/,
   },
   comment: {
-    movie: /<span class="comment">([^<]+)/, music: /<span class="comment">([^<]+)/,
-    drama: /<span class="comment">([^<]+)/,
+    // 影视 / 音乐 / 舞台剧共用一个**结构**判据，不是三个各写各的 class。
+    // 见 listComment() 里的说明：`<span class="comment">` 只有影视有。
+    movie: listComment, music: listComment, drama: listComment,
     book: /<p class="comment[^"]*"[^>]*>\s*([^<]+)/,
     // 游戏的短评在一个**没有 class 的裸 div** 里，只能靠它在 user-operation 前面定位。
     game: /<\/div>\s*<div>([^<]{2,})<\/div>\s*<div class="user-operation"/,
@@ -77,6 +78,94 @@ const FIELD = {
   subject_url: { _: /href="(https:\/\/[^"]*(?:\/subject\/|\/game\/|\/app\/|\/location\/drama\/)\d+\/?)"/ },
 };
 
+/**
+ * 影视 / 音乐 / 舞台剧列表页上的短评。
+ *
+ * ## `<span class="comment">` 是影视独有的
+ *
+ * 第一版三种媒介共用 `/<span class="comment">([^<]+)/`，看起来天经地义——影视上
+ * 它确实在。而实测：**音乐 84 条标记 0 条有短评，舞台剧 5 条标记 0 条有短评**，
+ * 两个整齐的零，一句告警都没有。它们的短评就裸在 `<li>` 里：
+ *
+ * ```html
+ * 影视  <li><span class="comment">这讲的是个啥故事…</span></li>
+ * 音乐  <li>\n    欢乐\n  </li>
+ * 舞台剧 <li>团建选了看舞台剧/音乐剧的项目…</li>
+ * ```
+ *
+ * CLAUDE.md 里那条「每种媒介一套，这不是可以统一的东西」讲的正是这个形状，
+ * 而当时的例子是游戏的评分与短评。**这是第二次**，所以这回不按 class 找，
+ * 按位置找。
+ *
+ * ## 判据是位置：紧挨在操作栏前面的那个 `<li>`
+ *
+ * 三种媒介的条目结构是一样的：
+ *
+ * ```
+ * <li class="title">   作品名
+ * <li class="intro">   元信息
+ * <li>                 评分 + 日期 + 标签      ← 有 class="date"
+ * <li>                 短评                    ← 就是它，没有短评时整个不存在
+ * <li class="clearfix opt-ln">  修改 / 删除
+ * ```
+ *
+ * 所以取操作栏前面那一个 `<li>`，再排掉「它其实是评分那一行」的情况——没有短评时
+ * 前面那个正是评分行。**排除靠的是里面有没有 `class="date"`**，而用户写不出这个：
+ * 短评在页面上是转义过的，`<span` 根本不会以标签的形式出现在里面。
+ *
+ * ## 那个 `<span class="pl">(N 有用)</span>` 必须先扔掉
+ *
+ * 影视的短评 `<li>` 里还挂着**点赞计数**：
+ *
+ * ```html
+ * <li>
+ *   <span class="comment">很不错的主意…</span>
+ *   <span class="pl">(1 有用)</span>
+ * </li>
+ * ```
+ *
+ * 它是**上游的易变量**。实测同一条标记在两次抓取之间从 `(5 有用)` 变成
+ * `(1 有用)`，短评一个字没动——把它算进短评，那条标记就凭空多出一条修订，
+ * 看起来像用户改过短评。与「1740人浏览」进日记正文是同一个错，而
+ * canonical 存在的全部理由就是「这条什么时候改的」。
+ *
+ * 这一条不是想出来的：改成按结构取之后，端到端那条断言立刻从「3 条多修订」
+ * 变成 4 条，多出来的正是它。
+ *
+ * @param {string} seg 一个条目容器的切片
+ * @returns {string|null}
+ */
+function listComment(seg) {
+  const opt = seg.indexOf('<li class="clearfix opt-ln"');
+  if (opt < 0) return null;
+  // `opt - 1`：lastIndexOf 的第二个参数是**含**该下标的，写 opt 会找到操作栏自己。
+  const head = seg.lastIndexOf('<li', opt - 1);
+  if (head < 0) return null;
+  const open = seg.indexOf('>', head);
+  if (open < 0 || open > opt) return null;
+
+  // **带 class 的 `<li>` 一律不是短评那一行。** 短评那格是个裸 `<li>`；
+  // `title` / `intro` / `opt-ln` 都带 class。
+  //
+  // 这一条是被真实数据逼出来的：有些标记只有标题，没有评分、日期、标签、短评
+  // （`<li class="title">` 后面直接就是操作栏）。判据只看 `<li>` **里面**有什么的话，
+  // 那个 `<li class="title">` 的 class 已经在切片之外了——于是 8 部电影的短评
+  // 变成了自己的片名：「V字仇杀队」「铁西区第一部分：工厂」。
+  //
+  // 这是最坏的一种错：**它产出的是像样的中文**，看一眼像用户真写过。
+  if (/\sclass\s*=/.test(seg.slice(head, open))) return null;
+
+  const inner = seg.slice(open + 1, opt)
+    .replace(/<\/li>\s*$/, '')
+    // 点赞计数，见上。**先扔掉再判断**——它在哪种媒介上都不该进短评。
+    .replace(/<span class="pl">[\s\S]*?<\/span>/g, '');
+  // 评分那一行（没有短评时它就在操作栏前面，而它同样是个裸 `<li>`）。
+  if (/class="(date|tags|intro|title)"|rating\d-t/.test(inner)) return null;
+  // 影视把短评包在 `<span class="comment">` 里。**有这个锚点就用它**——
+  // 越紧的锚点越不容易把旁边的东西捎带进来；音乐与舞台剧没有它，才退回整段。
+  return /<span class="comment">([\s\S]*?)<\/span>/.exec(inner)?.[1] ?? inner;
+}
+
 /** 页面上 `rel="<id>:P|F|N"` 的状态编码 —— 状态的第二份来源，用于交叉校验。 */
 const REL_STATUS = { P: 'done', F: 'wish', N: 'doing' };
 
@@ -97,8 +186,12 @@ function pick(seg, medium, field) {
   const sel = FIELD[field];
   const re = sel._ ?? sel[medium];
   if (!re) return null;
-  const m = re.exec(seg);
-  return m ? decodeEntities(m[1]).trim() : null;
+  // 选择器可以是一个函数——有些字段没有一个能靠 class 认出来的锚点，只能按结构找
+  // （见 listComment）。函数返回的是**还带着标签的那一段**，所以这里剥一次；
+  // 正则那条返回的是捕获组，本来就没有标签，剥了也是空操作。
+  const raw = typeof re === 'function' ? re(seg) : re.exec(seg)?.[1];
+  if (raw == null) return null;
+  return decodeEntities(raw.replace(/<[^>]+>/g, '')).trim() || null;
 }
 
 /**
