@@ -1,0 +1,62 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # 两个仓库并排检出——这就是本地的默认开发布局，也是不需要 submodule
+      # 的原因。一致性测试按 ../doubak-data-specs 定位规范仓库。
+      - uses: actions/checkout@v4
+        with:
+          path: doubak-data-parser
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Doubak/doubak-data-specs
+          path: doubak-data-specs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 跑测试
+        working-directory: doubak-data-parser
+        run: npm test
+
+      # **换一个时区再跑一遍。**
+      #
+      # 这条是被真事逼出来的：一条断言写死了本地时区下的时刻，本地全绿、CI 全红
+      # ——而那是运气好，CI 恰好在 UTC。要是 CI 也在同一个时区，这个 bug 会一直
+      # 潜到某个用户那里才炸。
+      #
+      # 用 UTC+14 是因为它与任何常见时区都差得足够远，日期本身都会不同。
+      - name: 换个时区再跑一遍
+        working-directory: doubak-data-parser
+        env:
+          TZ: Pacific/Kiritimati
+        run: npm test
+
+      # 本地跑时若规范仓库不在场，一致性用例会「带原因跳过」。
+      # 跳过在本地合理，在 CI 里等于没测——所以显式确认它们真的跑了。
+      - name: 确认一致性用例确实跑了而不是跳过了
+        working-directory: doubak-data-parser
+        run: |
+          test -d ../doubak-data-specs/canonical/tests/cases || {
+            echo '::error::规范仓库缺失，一致性用例会静默跳过'; exit 1; }
+          n=$(ls ../doubak-data-specs/canonical/tests/cases | wc -l)
+          echo "一致性用例 $n 组"
+          test "$n" -ge 10 || { echo '::error::用例数不对，像是没检出全'; exit 1; }
+
+      # 解析器的一部分测试要对着真实档案跑，而真实档案是私人数据，不会进 CI。
+      # 它们会跳过——**跳过多少要说出来**，否则「全绿」会掩盖「一大半没跑」。
+      - name: 报告跳过了多少
+        working-directory: doubak-data-parser
+        run: npm test 2>&1 | grep -E '^ℹ (tests|pass|skipped)' || true
