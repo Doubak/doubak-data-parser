@@ -17,6 +17,8 @@
  * 那一处起每条记录都配到了别人的日期。
  */
 
+import { decodeEntities } from './html-entities.js';
+
 /** 条目容器。每种媒介不同——2023 年中电影的容器 class 变过一次，两种都要认。 */
 const CONTAINER = {
   movie: /<div class="item[ "][^>]*>/g,
@@ -78,13 +80,25 @@ const FIELD = {
 /** 页面上 `rel="<id>:P|F|N"` 的状态编码 —— 状态的第二份来源，用于交叉校验。 */
 const REL_STATUS = { P: 'done', F: 'wish', N: 'doing' };
 
-/** @param {string} seg @param {string} medium @param {string} field */
+/**
+ * 取一个字段，**并把 HTML 实体解开**。
+ *
+ * 这一句 `decodeEntities` 是补上的：这个文件原来一个实体都不解，而它正是标题与
+ * 短评的来源。于是 `&#34;` `&#39;` `&lt;` 原样进了 canonical，站点生成器再照规矩
+ * 把 `&` 转义成 `&amp;`，页面上就显示成 `&#34;`。两边各自都没错，合起来是错的。
+ *
+ * 解码对每一种字段都是对的：URL 里的 `&amp;` 本来就该是 `&`，而评分和 id 是纯数字，
+ * 解不解都一样。所以放在 `pick` 里，而不是逐个字段挑——挑的那种迟早会漏掉新加的
+ * 字段，且漏掉的样子是「页面上多了几个 `&#34;`」，没人会当成 bug 报上来。
+ *
+ * @param {string} seg @param {string} medium @param {string} field
+ */
 function pick(seg, medium, field) {
   const sel = FIELD[field];
   const re = sel._ ?? sel[medium];
   if (!re) return null;
   const m = re.exec(seg);
-  return m ? m[1].trim() : null;
+  return m ? decodeEntities(m[1]).trim() : null;
 }
 
 /**

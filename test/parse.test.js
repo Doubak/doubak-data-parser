@@ -271,6 +271,27 @@ describe('对着真实档案端到端', () => {
     assert.ok(impl.every((w) => w.captured < w.claimed * 0.5));
   });
 
+  test('**canonical 里不该再留着没解开的 HTML 实体**', (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 实测：修之前 196 处（`&#39;` 125、`&amp;` 40、`&#34;` 19、`&gt;` 7、`&lt;` 5），
+    // 全都被站点生成器按规矩转义成 `&amp;#39;`，于是**原样印在页面上**。
+    //
+    // 修之后剩 1 处，而那一处是对的：原文是 `HITMAN&amp;amp;trade;`，解一次得到
+    // 字面的 `&amp;trade;`——用户当年粘的就是一段已经转义过的标题。解第二次才是错的。
+    const { marks, subjects, broadcasts, longform } = parse(openAll(DL));
+    const texts = [];
+    for (const rec of [...marks, ...subjects, ...broadcasts, ...longform]) {
+      for (const rev of rec.revisions) {
+        for (const v of Object.values(rev.fields)) {
+          if (typeof v === 'string') texts.push(v);
+          else if (Array.isArray(v)) texts.push(...v.filter((x) => typeof x === 'string'));
+        }
+      }
+    }
+    const left = texts.flatMap((s) => s.match(/&(?:#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi) ?? []);
+    assert.deepEqual(left, ['&amp;'], `canonical 里还留着没解开的实体：${left.slice(0, 10)}`);
+  });
+
   test('**广播引用的图 == 抓取端真的取回来的图**', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 这一条同时守着解析端与抓取端：两边对「哪些图算数」的判据必须逐字一致，

@@ -24,6 +24,8 @@
  * 与广播附图那条规则同一个判据、同一个理由。
  */
 
+import { stripTagsAndDecode } from './html-entities.js';
+
 /** 一条广播的外壳。转发不是嵌套结构：豆瓣把原作者那条整个渲染成一个顶层 wrapper。 */
 const WRAPPER = /<div class="new-status status-wrapper[^"]*"[^>]*>/g;
 
@@ -249,7 +251,5 @@ export function extractBroadcasts(html, ownerUserId) {
 
 /** 剥标签，保留文字。**不做任何归一化**——空白与全半角都是内容的一部分。 */
 function stripTags(s) {
-  return s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
-    .replace(/&#34;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .trim() || null;
+  return stripTagsAndDecode(s).trim() || null;
 }

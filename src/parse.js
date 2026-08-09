@@ -25,7 +25,9 @@ import {
 // 0.1.0：广播正文不再包含「（全文）」这个 UI 标签，改为记 text_truncated + full_text_url。
 // 0.2.0：开始解析作品详情页，作品记录多出 aliases（又名）。
 // 0.3.0：详情页 #info 整块收进 info；又名改按 ` / ` 切（裸斜杠会把 `(港/台)` 切坏）。
-export const PARSER_VERSION = 'doubak-data-parser/0.3.0';
+// 0.4.0：HTML 实体收敛成一份实现（src/html-entities.js）。标记列表页原来一个实体都不解，
+//        于是 `&#34;` 原样进了 canonical，被站点生成器忠实地印在页面上。
+export const PARSER_VERSION = 'doubak-data-parser/0.4.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */

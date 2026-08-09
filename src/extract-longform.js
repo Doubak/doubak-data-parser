@@ -25,6 +25,8 @@
  * 所以多条修订是正常的，正是要留住的东西。广播那边多一条修订是警报。
  */
 
+import { decodeEntities } from './html-entities.js';
+
 /**
  * 从某个 `<div …>` 起，取出**与之配对**的那个 `</div>` 之前的内容。
  *
@@ -57,7 +59,9 @@ function sliceDiv(html, openAt) {
 
 /** 剥标签，保留文字与换行。正文里的 `<br>` 是内容的一部分。 */
 function bodyText(html) {
-  return html
+  // 实体在**剥完标签之后**才解。反过来的话 `&lt;script&gt;` 会先变成
+  // `<script>`，然后被上面那条规则当作标签删掉——用户写的一段字就此消失。
+  return decodeEntities(html
     // **先把 script / style 连内容一起去掉。** 剥标签的正则只吃 `<...>`，
     // 留下的是标签之间的东西——而 `<script>` 之间的东西是 JS 源码。
     //
@@ -83,9 +87,7 @@ function bodyText(html) {
     // `</div>` 也算断开。不加这一条，图注会和下一段黏成一句——实测那篇带图日记
     // 变成了「长这样咯就是然后备份下来的数据…」。**那已经不是用户写的字了。**
     .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&quot;|&#34;/g, '"').replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ''))
     .replace(/\n{3,}/g, '\n\n')
     .trim() || null;
 }
@@ -147,7 +149,7 @@ function note(html) {
   return {
     id,
     kind: 'note',
-    title: /<h1>\s*([^<]+?)\s*<\/h1>/.exec(html)?.[1] ?? null,
+    title: decodeEntities(/<h1>\s*([^<]+?)\s*<\/h1>/.exec(html)?.[1] ?? '') || null,
     publishedAt: pub?.[1]?.trim() ?? null,
     // 发布地（「澳大利亚」）。豆瓣 2022 年后才有，早年的日记没有。
     location: pub?.[2]?.trim() || null,
@@ -170,7 +172,7 @@ function review(html) {
     id,
     kind: 'review',
     // **原始 HTML 里 `<h1>` 套着 `<span property="v:summary">`**，不是纯文字。
-    title: /property="v:summary"[^>]*>\s*([^<]+)/.exec(html)?.[1]?.trim() ?? null,
+    title: decodeEntities(/property="v:summary"[^>]*>\s*([^<]+)/.exec(html)?.[1]?.trim() ?? '') || null,
     publishedAt: /class="main-meta">\s*<span content="[\d-]+">\s*([\d:\- ]{10,19})/.exec(html)?.[1]?.trim() ?? null,
     location: null,
     body: content ? bodyText(content[1]) : null,
@@ -210,7 +212,7 @@ function topicNote(html) {
   return {
     id,
     kind: 'note',
-    title: /<h1 class="topic-title">\s*([^<]+?)\s*<\/h1>/.exec(html)?.[1] ?? null,
+    title: decodeEntities(/<h1 class="topic-title">\s*([^<]+?)\s*<\/h1>/.exec(html)?.[1] ?? '') || null,
     publishedAt: /class="create-time">\s*([\d:\- ]{10,19})/.exec(html)?.[1]?.trim() ?? null,
     location: /class="ip-location">\s*([^<]+)/.exec(html)?.[1]?.trim() || null,
     body: body ? bodyText(body) : null,

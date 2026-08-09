@@ -31,16 +31,7 @@
  * 之后两者再也分不开。
  */
 
-/** 解 HTML 实体。**只解，不归一化**——空白与全半角都是内容的一部分。 */
-function decode(s) {
-  return s
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;|&#34;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
-}
+import { decodeEntities } from './html-entities.js';
 
 /**
  * 抽 `#info` 里那一整块带标签的字段。
@@ -92,7 +83,7 @@ export function extractInfo(html) {
     if (!label) continue;
     // 冒号有时在标签 span 里面（`<span class="pl">类型:</span>`），有时在外面
     // （`<span class='pl'>导演</span>: …`）。两种都得剥掉，否则值会变成「: 甲」。
-    const value = splitList(decode(m[2].replace(/<[^>]+>/g, '')).replace(/^\s*[:：]\s*/, ''));
+    const value = splitList(decodeEntities(m[2].replace(/<[^>]+>/g, '')).replace(/^\s*[:：]\s*/, ''));
     if (value.length) out[label] = value;
   }
   return out;
