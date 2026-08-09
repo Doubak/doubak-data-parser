@@ -238,21 +238,39 @@ describe('说不通的完整性声明不算数', () => {
 describe('对着真实档案端到端', () => {
   const DL = '/home/mewx/downloads/20260806';
 
-  test('五份成链档案 → 数字与实测吻合', (t) => {
+  test('成链档案 → 数字与实测吻合', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     const { marks, subjects, warnings } = parse(openAll(DL));
 
     const byMedium = {};
     for (const m of marks) byMedium[m.medium] = (byMedium[m.medium] ?? 0) + 1;
-    assert.deepEqual(byMedium, { movie: 2102, book: 145, music: 84, game: 604, drama: 5 });
+    assert.deepEqual(byMedium, { movie: 2103, book: 145, music: 84, game: 604, drama: 5 });
 
-    // **标记的修订只应来自用户的编辑。** 实测五份档案跨越的时间里恰好有三次真实的
-    // 状态迁移（想看→看过 ×2、想看→在看 ×1），除此之外一条都不该有。
+    // **标记的修订只应来自用户的编辑。**
+    //
+    // 判据不是「有几条」——档案会长，那个数每加一份新档案就要改一次，而改它的时候
+    // 没人分得清多出来的是真编辑还是新 bug。判据是**每一次修订都必须是一次向前的
+    // 状态迁移**：想看 → 在看 → 看过。
+    //
+    // 那才是这条断言真正要挡的东西。已经发生过两次的假修订都是**同状态**的：
+    // 短评旁边的 `(N 有用)` 从 5 变成 1、日记页脚的「1740人浏览」每抓一次涨一点
+    // ——两者都不会让状态动一下，所以都会被这条判据抓住。
+    //
+    // 实测 9 份档案：7 条多修订，全部是前进的（想看→看过 ×3、在看→看过 ×3、
+    // 想看→在看 ×1），一条同状态的都没有。
+    const ORDER = { wish: 0, doing: 1, done: 2 };
     const multi = marks.filter((m) => m.revisions.length > 1);
-    assert.equal(multi.length, 3, `多出来的修订：${multi.map((m) => m.subject.id).join(' ')}`);
+    assert.equal(multi.length, 7, `多修订的标记：${multi.map((m) => m.subject.id).join(' ')}`);
     for (const m of multi) {
-      assert.equal(m.revisions[0].fields.status, 'wish');
-      assert.notEqual(m.revisions[1].fields.status, 'wish');
+      for (let i = 1; i < m.revisions.length; i++) {
+        const before = m.revisions[i - 1].fields.status;
+        const after = m.revisions[i].fields.status;
+        assert.ok(
+          ORDER[after] > ORDER[before],
+          `${m.subject.url} 的第 ${i + 1} 条修订没有推进状态（${before} → ${after}）`
+          + '——同状态的多修订多半来自上游的易变量，不是用户的编辑',
+        );
+      }
     }
 
     // 墓碑：电影 1 + 游戏 7。作品名必须是 null——「未知电影」是占位符不是标题。
