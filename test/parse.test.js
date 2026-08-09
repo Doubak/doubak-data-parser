@@ -10,7 +10,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from '../src/authority.js';
+import {
+  absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable, implausible,
+} from '../src/authority.js';
 import { fieldDigest, digestAll, sameRevision } from '../src/digest.js';
 import { extractMarks } from '../src/extract.js';
 import { openAll } from '../src/bundle-source.js';
@@ -186,6 +188,53 @@ describe('墓碑：作品被删，标记还在', () => {
   });
 });
 
+describe('说不通的完整性声明不算数', () => {
+  const clean = { contiguous: true, gaps: [], enumeration: 'full' };
+
+  test('**声称完整但只抓到零头 → 不给 whole_route**', () => {
+    // 规范 §6 早就要求做这个自检，只是解析器一直没做。而实测三份真实档案里
+    // 各有 8 条路线正是这个样子：enumeration=full、claimed=1336、captured=15。
+    // 那是生产者的 bug（增量的下界丢了），但档案是冻结的——它会永远带着这句
+    // 假话，而下一个照规范办事的读者会据此断定那 1321 条被删了。
+    assert.equal(
+      absenceAuthority(clean, 'complete', { claimed_count: 1336, captured_count: 15 }),
+      'none',
+    );
+  });
+
+  test('数字对得上就照给', () => {
+    assert.equal(
+      absenceAuthority(clean, 'complete', { claimed_count: 1333, captured_count: 1333 }),
+      'whole_route',
+    );
+  });
+
+  test('**豆瓣自己少报那点幅度不该被误伤**', () => {
+    // 实测同一次抓取：游戏声称 293、只渲染出 288（少 2%），而缺口还在列表中间。
+    // 那是豆瓣自己的审查层造成的，不是抓取不完整——阈值取一半正是为了离它远远的。
+    assert.equal(
+      absenceAuthority(clean, 'complete', { claimed_count: 293, captured_count: 288 }),
+      'whole_route',
+    );
+  });
+
+  test('**没有 coverage 时照旧按 crawl_state 判** —— 没有证据不等于有反证', () => {
+    assert.equal(absenceAuthority(clean, 'complete', undefined), 'whole_route');
+    assert.equal(implausible(undefined), false);
+    assert.equal(implausible({ claimed_count: 0, captured_count: 0 }), false);
+  });
+
+  test('**只用来否掉，不用来授予**', () => {
+    // 规范 §2：豆瓣的计数有时统计于审查之前、有时之后，证明不了完整。
+    // 所以一条 bounded 路线不会因为数字好看就升级成 whole_route。
+    assert.equal(
+      absenceAuthority({ ...clean, enumeration: 'bounded' }, 'complete',
+        { claimed_count: 100, captured_count: 100 }),
+      'none',
+    );
+  });
+});
+
 describe('对着真实档案端到端', () => {
   const DL = '/home/mewx/downloads/20260806';
 
@@ -212,7 +261,14 @@ describe('对着真实档案端到端', () => {
     assert.equal(tombs.length, 8);
     assert.ok(tombs.every((s) => s.revisions.every((r) => r.fields.title === null)));
 
-    assert.deepEqual(warnings, [], '真实档案上不该有任何告警');
+    // **这份真实档案里确实有 24 条说不通的完整性声明**（三份档案各 8 条路线），
+    // 成因是当年那两个已经修掉的生产者 bug。档案是冻结的，所以告警会一直在——
+    // 而它就该一直在：那是「这几份档案的声明不可信」的记录。
+    const other = warnings.filter((w) => w.type !== 'implausible_full');
+    assert.deepEqual(other, [], '除了那几条已知的假声明，不该有别的告警');
+    const impl = warnings.filter((w) => w.type === 'implausible_full');
+    assert.ok(impl.length > 0, '这份档案本该有假声明告警，不然这条测试是空的');
+    assert.ok(impl.every((w) => w.captured < w.claimed * 0.5));
   });
 
   test('**广播引用的图 == 抓取端真的取回来的图**', (t) => {

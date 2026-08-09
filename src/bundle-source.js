@@ -60,6 +60,18 @@ export class BundleSource {
   }
 
   /**
+   * routeKey → coverage 那一行。没有 manifest 时是空表。
+   *
+   * 用来**否掉**明显说不通的完整性声明，不用来授予权限（../INGESTION.md §2：
+   * 豆瓣的计数有时统计于审查之前、有时之后，证明不了完整）。
+   */
+  get coverage() {
+    const out = new Map();
+    for (const c of this.manifest?.coverage ?? []) out.set(c.route_key, c);
+    return out;
+  }
+
+  /**
    * 取一条捕获的 HTTP 响应正文（已解码为字符串）。
    *
    * @param {object} row index 里的一行

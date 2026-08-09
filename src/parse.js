@@ -16,7 +16,9 @@ import { topology, assertSingleAccount } from './topology.js';
 import { extractSubjectDetail } from './extract-subject.js';
 import { extractLongform } from './extract-longform.js';
 import { digestAll, sameRevision } from './digest.js';
-import { absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable } from './authority.js';
+import {
+  absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable, implausible,
+} from './authority.js';
 
 // 【改抽取逻辑就要推这个版本】否则重跑之后摘要变了，会被当成用户编辑——
 // 而 canonical 只比较同一 parser_version 的修订（../INGESTION.md §4.4）。
@@ -89,6 +91,23 @@ export function parse(sources, opts = {}) {
   for (const src of sources) {
     stats.bundles += 1;
     const cs = src.crawlState;
+    const cov = src.coverage;
+
+    // **档案里的完整性声明说不通时要说出来。** 不报的话，一份带着假声明的档案
+    // 会安静地被降级处理，而用户永远不知道自己手上那份有问题——而它是冻结的，
+    // 知道了才好决定要不要重抓一遍。
+    for (const [routeKey, entry] of cs) {
+      if (entry.enumeration === 'full' && implausible(cov.get(routeKey))) {
+        const c = cov.get(routeKey);
+        warnings.push({
+          type: 'implausible_full',
+          bundle: src.bundleId,
+          route_key: routeKey,
+          claimed: c.claimed_count,
+          captured: c.captured_count,
+        });
+      }
+    }
     for (const row of src.index) {
       const isBroadcast = row.intent === 'broadcast.timeline';
       const lfKind = row.intent === 'note.item' ? 'note' : row.intent === 'review.item' ? 'review' : null;
@@ -105,7 +124,7 @@ export function parse(sources, opts = {}) {
           if (isRecalibratable(row)) bump(stats.recalibratable, row.route_key);
           continue;
         }
-        work.push({ src, row, kind: 'longform', lfKind, auth: absenceAuthority(cs.get(row.route_key), src.status) });
+        work.push({ src, row, kind: 'longform', lfKind, auth: absenceAuthority(cs.get(row.route_key), src.status, cov.get(row.route_key)) });
         continue;
       }
 
@@ -119,7 +138,7 @@ export function parse(sources, opts = {}) {
           if (isRecalibratable(row)) bump(stats.recalibratable, row.route_key);
           continue;
         }
-        work.push({ src, row, kind: 'broadcast', auth: absenceAuthority(cs.get(row.route_key), src.status) });
+        work.push({ src, row, kind: 'broadcast', auth: absenceAuthority(cs.get(row.route_key), src.status, cov.get(row.route_key)) });
         continue;
       }
 
@@ -127,7 +146,7 @@ export function parse(sources, opts = {}) {
         // 详情页不产生新的作品记录，只给已有的补字段——记录本身来自列表页
         // （那才是「我标记过它」的来源）。所以这里只入队，合并在下面做。
         if (hasUnknownVerdict(row) || !isContent(row)) { bump(stats.skipped, `verdict:${row.verdict}`); continue; }
-        work.push({ src, row, kind: 'detail', auth: absenceAuthority(cs.get(row.route_key), src.status) });
+        work.push({ src, row, kind: 'detail', auth: absenceAuthority(cs.get(row.route_key), src.status, cov.get(row.route_key)) });
         continue;
       }
 
@@ -147,7 +166,7 @@ export function parse(sources, opts = {}) {
         continue;
       }
 
-      work.push({ src, row, kind: 'mark', medium, status, auth: absenceAuthority(cs.get(row.route_key), src.status) });
+      work.push({ src, row, kind: 'mark', medium, status, auth: absenceAuthority(cs.get(row.route_key), src.status, cov.get(row.route_key)) });
     }
   }
   for (const d of topo.danglingFloors) {
