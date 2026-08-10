@@ -313,9 +313,16 @@ export function extractBroadcasts(html, ownerUserId) {
  * @returns {string|null}
  */
 function cardTitle(seg) {
-  const at = seg.indexOf('block-subject');
+  // **任何一种卡片，不只是作品卡。** 作品是 `block-subject`，而关注榜单是
+  // `chart-block`——只认前者的话，「关注榜单：」后面就一直是空的。
+  const at = /<div class="block[^"]*"/.exec(seg)?.index ?? -1;
   if (at < 0) return null;
-  const m = /<div class="title">\s*<a\b[^>]*>([\s\S]*?)<\/a>/.exec(seg.slice(at));
+  const title = /<div class="title">([\s\S]*?)<\/div>/.exec(seg.slice(at))?.[1];
+  if (!title) return null;
+  // **只认链接文字。** 条目被豆瓣移除时卡片是 `block-subject ban`，标题位置上是
+  // 一段没有链接的「未知条目」——那是占位符，与「未知作品」「暂无封面」同一条规则：
+  // 占位符不是内容。存下来的话，档案就替豆瓣说了一句它自己都没说的话。
+  const m = /<a\b[^>]*>([\s\S]*?)<\/a>/.exec(title);
   if (!m) return null;
   return stripTagsAndDecode(m[1]).replace(/\s+/g, ' ').trim() || null;
 }
