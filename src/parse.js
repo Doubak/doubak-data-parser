@@ -30,7 +30,9 @@ import {
 // 0.5.0：音乐与舞台剧的短评原来一条都抽不到（它们的短评裸在 <li> 里，没有
 //        `<span class="comment">`）；长文正文的段落、点列表不再粘成一坨，
 //        日记正文不再吞进豆瓣的频道标签与版权声明。
-export const PARSER_VERSION = 'doubak-data-parser/0.5.0';
+// 0.6.0：**打了分的广播，正文原来一律抽不到**（评分星夹在 blockquote 与 <p> 之间）。
+//        实测 2200 条有正文的广播漏掉 1411 条，且漏掉的每一条都带评分。
+export const PARSER_VERSION = 'doubak-data-parser/0.6.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */

@@ -219,7 +219,30 @@ export function extractBroadcasts(html, ownerUserId) {
     const fullText = fullTextUrl(seg);
 
     const action = /class="lnk-people">[^<]*<\/a>\s*([^<\s][^<]{0,6}?)\s*</.exec(seg)?.[1]?.trim() ?? null;
-    let quote = /<blockquote[^>]*>\s*<p[^>]*>([\s\S]*?)<\/p>/.exec(seg)?.[1] ?? null;
+    // **先切出 blockquote，再在里面找第一个 `<p>`。**
+    //
+    // 原来是一条正则直接要求 `<blockquote>` 后面紧跟着 `<p>`：
+    //
+    //     /<blockquote[^>]*>\s*<p[^>]*>([\s\S]*?)<\/p>/
+    //
+    // 而带评分的广播在两者之间还夹着一个评分星：
+    //
+    //     <blockquote>
+    //       <span class="rating-stars">★★★★★</span>
+    //       <p>7月2号首发玩起了，非常不错！</p>
+    //     </blockquote>
+    //
+    // 于是**凡是打了分的广播，正文一律抽不到**。实测 2200 条有正文的广播里漏掉
+    // 1411 条（64%），而漏掉的那 1411 条**每一条**都是带评分的——不是零星漏网，
+    // 是一整类。
+    //
+    // 它一句告警都没有：`text: null` 与「这条广播本来就没写字」长得一模一样，
+    // 而后者本来就占多数（纯标记动作），所以数字上也看不出异常。
+    //
+    // 广播是这份档案里最不可替代的东西（发布即冻结，是首次抓取之前那些编辑的
+    // 唯一证据）。字节一直都在 WARC 里，改这一处重跑就全回来了。
+    const blockquote = /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/.exec(seg)?.[1] ?? null;
+    let quote = blockquote ? (/<p[^>]*>([\s\S]*?)<\/p>/.exec(blockquote)?.[1] ?? null) : null;
     // 「（全文）」是豆瓣的链接文字，**不是用户写的字**，所以不进正文——
     // 与「未知作品」「1740人浏览」「暂无封面」是同一条规则：占位符不是内容。
     // 截断这件事本身记在 fullTextUrl 上，不靠正文末尾的字来表达。

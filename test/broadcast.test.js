@@ -37,6 +37,30 @@ describe('抽取', () => {
     assert.match(b.text, /国产好片/);
   });
 
+  test('**打了分的广播，正文也要抽到** —— 评分星夹在 blockquote 与 <p> 之间', () => {
+    // 这是真实页面的形状：带评分的广播在 `<blockquote>` 与正文 `<p>` 之间还夹着
+    // 一个评分星。原来那条正则要求两者紧挨着（`<blockquote>\s*<p>`），于是
+    // **凡是打了分的广播，正文一律抽不到**。
+    //
+    // 实测这份档案：2200 条有正文的广播漏掉 1411 条（64%），而漏掉的那 1411 条
+    // **每一条**都带评分——不是零星漏网，是一整类。
+    //
+    // 它一句告警都没有：`text: null` 与「这条本来就没写字」长得一模一样，而后者
+    // 本来就占多数（纯标记动作），所以连数字上都看不出异常。
+    const html = wrap(OWNER, `<a class="lnk-people">MewX</a> 玩过
+      <span class="created_at" title="2026-08-09 18:18:13">x</span>
+      <blockquote>
+        <span class="rating-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+        <p>前几周全金牌了，太喜欢这个游戏了</p>
+      </blockquote>
+      <div data-target-type="game" data-object-id="37294205"></div>`);
+    const { broadcasts } = extractBroadcasts(html, OWNER);
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0].text, '前几周全金牌了，太喜欢这个游戏了');
+    // 评分星是豆瓣画的，不是用户写的字，不许混进正文。
+    assert.ok(!/★|9733/.test(broadcasts[0].text));
+  });
+
   test('**转发进来的是别人的，不许存**', () => {
     // 转发不是嵌套结构：豆瓣把原作者那条整个渲染成一个顶层 wrapper，data-uid 是原作者。
     const html = wrap(OWNER, '<span class="created_at" title="2026-01-01 00:00:00">x</span>')
