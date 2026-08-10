@@ -32,7 +32,9 @@ import {
 //        日记正文不再吞进豆瓣的频道标签与版权声明。
 // 0.6.0：**打了分的广播，正文原来一律抽不到**（评分星夹在 blockquote 与 <p> 之间）。
 //        实测 2200 条有正文的广播漏掉 1411 条，且漏掉的每一条都带评分。
-export const PARSER_VERSION = 'doubak-data-parser/0.6.0';
+// 0.7.0：广播多出 rating —— 发布那一刻给的星数（1447/3401 条有）。标记只留最新那个分，
+//        而广播冻结，所以这是豆瓣自己都不保存的评分变化史。
+export const PARSER_VERSION = 'doubak-data-parser/0.7.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */
@@ -463,6 +465,10 @@ function upsertBroadcast(store, { b, account, observation, parserVersion }) {
     text: b.text,
     action: b.action,
     status: b.status,
+    // 发这条广播时给的星数。**与标记的评分不是一回事**：标记只留最新那个
+    // （改一次覆盖一次，豆瓣不留历史），而广播冻结，所以这是「那一天给了几颗星」。
+    // 排开同一部作品的几条广播，就是一份豆瓣自己都没有的评分变化史。
+    rating: b.rating,
     target_type: b.targetType,
     target_id: b.targetId,
     // 附图。字节在档案里，但 canonical 里没有任何东西指向它们的话，站点生成器

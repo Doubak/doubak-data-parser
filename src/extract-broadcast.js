@@ -167,9 +167,11 @@ function fullTextUrl(seg) {
  * @typedef {object} RawBroadcast
  * @property {string} sid            data-sid，广播的身份
  * @property {string|null} postedAt  秒级时间戳（原始字符串）
- * @property {string|null} text      正文。实测只有 23% 的广播有——多数是纯标记动作
+ * @property {string|null} text      正文。实测 65% 的广播有（其余是纯标记动作）
  * @property {string|null} action    动作原文（想看 / 收藏图书到豆列 / …）
  * @property {string|null} status    动作能明确映射到三种标记状态时才有，否则 null
+ * @property {number|null} rating    发这条广播时给的星数（1–5）。**与标记的评分不是
+ *   一回事**：标记只留最新那个，而广播冻结，所以这是「那一天给了几颗星」
  * @property {string|null} targetType data-target-type
  * @property {string|null} targetId   data-object-id
  * @property {string|null} url
@@ -242,6 +244,17 @@ export function extractBroadcasts(html, ownerUserId) {
     // 广播是这份档案里最不可替代的东西（发布即冻结，是首次抓取之前那些编辑的
     // 唯一证据）。字节一直都在 WARC 里，改这一处重跑就全回来了。
     const blockquote = /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/.exec(seg)?.[1] ?? null;
+    // **发这条广播时给的星数。** 与标记页那个分不是一回事，这正是它值钱的地方：
+    // 标记只留最新那个（改一次覆盖一次，豆瓣不留历史），而广播发布即冻结，
+    // 所以这是「那一天我给了几颗星」。同一部作品的几条广播排开，就是一份
+    // **豆瓣自己都没有**的评分变化史。实测 3401 条里 1447 条带评分。
+    //
+    // **数星星，不解析文案**：页面上是 `&#9733;` 这样的实体，不是数字。
+    // 没打分就是 null——0 星和没打分是两件事。
+    const stars = blockquote
+      ? (/<span class="rating-stars">([\s\S]*?)<\/span>/.exec(blockquote)?.[1] ?? null)
+      : null;
+    const rating = stars ? ((stars.match(/&#9733;|★/g) ?? []).length || null) : null;
     let quote = blockquote ? (/<p[^>]*>([\s\S]*?)<\/p>/.exec(blockquote)?.[1] ?? null) : null;
     // 「（全文）」是豆瓣的链接文字，**不是用户写的字**，所以不进正文——
     // 与「未知作品」「1740人浏览」「暂无封面」是同一条规则：占位符不是内容。
@@ -256,6 +269,7 @@ export function extractBroadcasts(html, ownerUserId) {
       text: quote ? stripTags(quote) : null,
       action,
       status: action ? (ACTION_STATUS[action] ?? null) : null,
+      rating,
       targetType: /data-target-type="(\w+)"/.exec(seg)?.[1] ?? null,
       targetId: /data-object-id="(\d+)"/.exec(seg)?.[1] ?? null,
       url: /data-status-url="([^"]+)"/.exec(seg)?.[1] ?? null,

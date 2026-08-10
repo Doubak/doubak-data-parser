@@ -56,6 +56,15 @@ function summarize({ marks, broadcasts, longform }, warnings) {
     truncated: broadcasts.filter(
       (b) => b.revisions.some((r) => r.fields.text_truncated),
     ).length,
+    // 广播发布时给的星数。**只收非 null 的**——0 星与没打分是两件事，
+    // 而一个把「没打分」写成 0 的实现会在这里露出来。
+    broadcast_ratings: [...new Set(
+      broadcasts.flatMap((b) => b.revisions.map((r) => r.fields.rating)).filter((x) => x != null),
+    )].sort(),
+    // 正文，供 `*_contains` 断言用。
+    broadcast_text_contains: broadcasts.flatMap(
+      (b) => b.revisions.map((r) => r.fields.text ?? ''),
+    ).join('\n'),
     // 只收非 null 的——「收藏图书到豆列」映射不到三种标记状态，那时必须是 null。
     broadcast_statuses: [...new Set(
       broadcasts.flatMap((b) => b.revisions.map((r) => r.fields.status)).filter(Boolean),
