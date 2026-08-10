@@ -174,6 +174,7 @@ function fullTextUrl(seg) {
  *   一回事**：标记只留最新那个，而广播冻结，所以这是「那一天给了几颗星」
  * @property {string|null} targetType data-target-type
  * @property {string|null} targetId   data-object-id
+ * @property {string|null} targetTitle 卡片上那个作品名，**那一刻的名字**
  * @property {string|null} url
  * @property {string[]} images       附图原件 URL。**空数组不是 null**——见下
  * @property {string|null} fullTextUrl 正文被豆瓣截断时，指向全文的 URL；没截断是 null
@@ -272,6 +273,16 @@ export function extractBroadcasts(html, ownerUserId) {
       rating,
       targetType: /data-target-type="(\w+)"/.exec(seg)?.[1] ?? null,
       targetId: /data-object-id="(\d+)"/.exec(seg)?.[1] ?? null,
+      // 卡片上那个作品名。**广播发布即冻结，所以这也是那一刻的名字。**
+      //
+      // 实测这份档案里 162 条广播指向一个本地没有的条目（条目被豆瓣删了，或者
+      // 豆列 / 关注榜单这类根本不产生标记的东西）。页面上它们只剩「想看」两个字
+      // 后面空着，看起来像抓漏了——**而名字一直就在卡片里**，只是没人去取。
+      //
+      // 取 `block-subject` 里那个 `.title` 的链接文字。**必须在条目容器切片里取**：
+      // 整页扫的话会取到别人那条转发的标题（第三方内容藏在自己的页面里，
+      // 这个项目已经踩过三次）。
+      targetTitle: cardTitle(seg),
       url: /data-status-url="([^"]+)"/.exec(seg)?.[1] ?? null,
       // **空数组，不是 null。** 广播页整个抓到了，就等于看清了「这条有没有图」——
       // 这与「没抽到」是两回事。null 会让下游分不清「确认没有」和「没看过」。
@@ -284,6 +295,29 @@ export function extractBroadcasts(html, ownerUserId) {
   }
 
   return { broadcasts, skippedOthers, idless, unresolvedImages };
+}
+
+/**
+ * 广播卡片上的作品名。
+ *
+ * 结构（实测）：
+ *
+ *     <div class="block block-subject">
+ *       <div class="pic"><a title="莫阿娜 Moana (2026)" …><img …></a></div>
+ *       <div class="content"><div class="title"><a …>莫阿娜 Moana (2026)</a></div>
+ *
+ * 取 `.title` 里的链接文字，不取 `title=` 属性——属性里那个在有些卡片上带着多余的
+ * 后缀，而链接文字就是页面上显示的那几个字。
+ *
+ * @param {string} seg 一个条目容器的切片
+ * @returns {string|null}
+ */
+function cardTitle(seg) {
+  const at = seg.indexOf('block-subject');
+  if (at < 0) return null;
+  const m = /<div class="title">\s*<a\b[^>]*>([\s\S]*?)<\/a>/.exec(seg.slice(at));
+  if (!m) return null;
+  return stripTagsAndDecode(m[1]).replace(/\s+/g, ' ').trim() || null;
 }
 
 /** 剥标签，保留文字。**不做任何归一化**——空白与全半角都是内容的一部分。 */

@@ -34,7 +34,9 @@ import {
 //        实测 2200 条有正文的广播漏掉 1411 条，且漏掉的每一条都带评分。
 // 0.7.0：广播多出 rating —— 发布那一刻给的星数（1447/3401 条有）。标记只留最新那个分，
 //        而广播冻结，所以这是豆瓣自己都不保存的评分变化史。
-export const PARSER_VERSION = 'doubak-data-parser/0.7.0';
+// 0.8.0：广播多存一个 target_title —— 卡片上那个作品名。实测 162 条广播指向一个本地
+//        没有的条目（被豆瓣删了、或豆列这类不产生标记的东西），此前页面上只剩一个动作词。
+export const PARSER_VERSION = 'doubak-data-parser/0.8.0';
 export const CANONICAL_VERSION = 'canonical/1.0';
 
 /** 路线状态词 → canonical 的封闭词表。 */
@@ -471,6 +473,8 @@ function upsertBroadcast(store, { b, account, observation, parserVersion }) {
     rating: b.rating,
     target_type: b.targetType,
     target_id: b.targetId,
+    // 卡片上那个作品名。**接不回本地作品页时，档案靠它才说得出这条广播在讲什么。**
+    target_title: b.targetTitle,
     // 附图。字节在档案里，但 canonical 里没有任何东西指向它们的话，站点生成器
     // 就无从摆放——那正是日记内嵌图踩过的坑，同一个形状。
     images: b.images,
