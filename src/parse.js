@@ -15,6 +15,7 @@ import { extractBroadcasts } from './extract-broadcast.js';
 import { topology, assertSingleAccount } from './topology.js';
 import { extractSubjectDetail } from './extract-subject.js';
 import { extractLongform } from './extract-longform.js';
+import { extractDoulist } from './extract-doulist.js';
 import { digestAll, sameRevision } from './digest.js';
 import {
   absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable, implausible,
@@ -63,6 +64,18 @@ export function parse(sources, opts = {}) {
   const broadcasts = new Map();
   /** @type {Map<string, object>} `${kind}:${id}` → 日记 / 评论 */
   const longform = new Map();
+  /**
+   * 豆列。
+   *
+   * **一份豆列横跨好几次捕获**（每页 25 条，实测有 4 页的），所以这里先按
+   * 「哪一份档案里的哪一份豆列」把页面攒起来，等这一份档案读完再合成一条记录。
+   * 边读边 upsert 是不行的：第二页到达时前一页的条目已经写进修订里了，合起来会
+   * 变成「第一次观测只有 25 条，第二次观测有 50 条」——一份**凭空多出来的编辑
+   * 历史**，而豆列恰恰是可编辑的，没人分得清那是真改还是分页假象。
+   *
+   * @type {Map<string, {src: object, id: string, pages: Map<number, object>}>}
+   */
+  const doulistPages = new Map();
   /**
    * `medium:id` → 从详情页补来的字段。
    *
@@ -123,7 +136,25 @@ export function parse(sources, opts = {}) {
       const isBroadcast = row.intent === 'broadcast.timeline';
       const lfKind = row.intent === 'note.item' ? 'note' : row.intent === 'review.item' ? 'review' : null;
       const isDetail = row.intent === 'interest.item';
-      if (!isBroadcast && !lfKind && !isDetail && !row.intent?.startsWith('interest.list.')) continue;
+      const isDoulist = row.intent === 'doulist.item';
+      if (!isBroadcast && !lfKind && !isDetail && !isDoulist
+          && !row.intent?.startsWith('interest.list.')) continue;
+
+      if (isDoulist) {
+        // 索引页（`doulist.list.*`）不产生记录：它只说「有哪几份」，而那几份的
+        // URL 已经在抓取时用过了。内容全在详情页里。
+        if (hasUnknownVerdict(row)) {
+          warnings.push({ type: 'unknown_verdict', verdict: row.verdict, capture: row.capture_id });
+          bump(stats.skipped, `未知 verdict:${row.verdict}`); continue;
+        }
+        if (!isContent(row)) {
+          bump(stats.skipped, `verdict:${row.verdict}`);
+          if (isRecalibratable(row)) bump(stats.recalibratable, row.route_key);
+          continue;
+        }
+        work.push({ src, row, kind: 'doulist', auth: absenceAuthority(cs.get(row.route_key), src.status, cov.get(row.route_key)) });
+        continue;
+      }
 
       if (lfKind) {
         if (hasUnknownVerdict(row)) {
@@ -236,6 +267,24 @@ export function parse(sources, opts = {}) {
       continue;
     }
 
+    if (kind === 'doulist') {
+      const d = extractDoulist(html, row.url);
+      if (!d) {
+        // 认不出来就报，**不猜**。一个「标题 null、条目空」的记录与一份真的空豆列
+        // 长得一模一样。
+        warnings.push({ type: 'extractor_stale', capture: row.capture_id, kind: 'doulist' });
+        continue;
+      }
+      // 按 `start` 收页。同一页被抓过两次（增量重叠）时后到的覆盖先到的——它们
+      // 是同一页的两次观测，不是两页。
+      const start = Number(/[?&]start=(\d+)/.exec(row.url ?? '')?.[1] ?? 0);
+      const key = `${src.bundleId}:${d.id}`;
+      if (!doulistPages.has(key)) doulistPages.set(key, { src, id: d.id, pages: new Map() });
+      doulistPages.get(key).pages.set(start, { d, observation: { ...observationBase } });
+      stats.observations += 1;
+      continue;
+    }
+
     if (kind === 'longform') {
       const lf = extractLongform(html, lfKind);
       if (!lf) {
@@ -320,8 +369,26 @@ export function parse(sources, opts = {}) {
   }
   if (lastSrc) lastSrc.close();
 
+  // 一份档案里的一份豆列 = 一次观测，页面按 start 升序拼起来。
+  //
+  // **次序是内容的一部分**：用户排过的清单，把第 2 页排到第 1 页前面就是改了内容。
+  const doulists = new Map();
+  for (const { src, id, pages } of doulistPages.values()) {
+    const ordered = [...pages.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+    const first = ordered[0].d;
+    upsertDoulist(doulists, {
+      d: { ...first, items: ordered.flatMap((p) => p.d.items) },
+      account: src.manifest?.account,
+      observation: ordered[0].observation,
+      // 每一页都是这条记录的来源，全都要能指回去。
+      captureIds: ordered.flatMap((p) => p.observation.capture_ids ?? []),
+      parserVersion,
+    });
+  }
+
   return {
     topology: topo,
+    doulists: [...doulists.values()],
     marks: [...marks.values()],
     subjects: [...subjects.values()],
     broadcasts: [...broadcasts.values()],
@@ -536,6 +603,59 @@ function upsertLongform(store, { lf, account, observation, parserVersion }) {
     store.set(key, rec);
   }
   appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
+}
+
+/**
+ * 一份豆列。
+ *
+ * **逐字段摘要，而且 `items` 整体算一个字段。** 加一条新条目与把某条评语重写了
+ * 一遍是两件不同的事，但两者都落在 items 上——再往下拆到每个条目才分得开，而那
+ * 是下一步的事。眼下至少要保证：**豆瓣的评分不参与摘要**（它自己会变，参与了就
+ * 会凭空多出修订，与长文正文吞进「1740人浏览」同一类错）。
+ */
+function upsertDoulist(store, { d, account, observation, captureIds, parserVersion }) {
+  const fields = {
+    title: d.title,
+    description: d.description,
+    visibility: d.visibility,
+    // 只留会因为用户动作而变的部分。rating / abstract / cover 是豆瓣的目录数据，
+    // 它们变了不代表用户改了什么。
+    items: d.items.map((i) => ({
+      entry_id: i.entryId,
+      upstream_id: i.upstreamId,
+      category: i.category,
+      url: i.url,
+      title: i.title,
+      comment: i.comment,
+    })),
+  };
+  const digests = digestAll(fields);
+
+  let rec = store.get(d.id);
+  if (!rec) {
+    rec = {
+      canonical_version: CANONICAL_VERSION,
+      identity_layer: 'upstream_id',
+      upstream_id: d.id,
+      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      // 现在只抓自己编的（intent 是 `doulist.list.created`）。
+      ownership: 'created',
+      owner: { user_id: account?.user_id ?? null, username: account?.username ?? null },
+      url: d.url,
+      revisions: [],
+    };
+    store.set(d.id, rec);
+  }
+  appendRevision(rec.revisions, {
+    fields,
+    digests,
+    observation: { ...observation, capture_ids: captureIds },
+    parserVersion,
+  });
+  // 目录数据另存一份，不参与摘要，但渲染要用。
+  rec.catalog = Object.fromEntries(d.items.map((i) => [i.entryId, {
+    abstract: i.abstract, rating: i.rating, cover_url: i.coverUrl, source: i.source,
+  }]));
 }
 
 function bump(obj, key) { obj[key] = (obj[key] ?? 0) + 1; }
