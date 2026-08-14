@@ -242,9 +242,45 @@ describe('对着真实档案端到端', () => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     const { marks, subjects, warnings } = parse(openAll(DL));
 
+    // **判据是「只增不减 + 不重复」，不是一个准确的总数。**
+    //
+    // 原来这里写死 `{movie: 2103, …}`。档案会长——档案主人 2026-08-12 又抓了一次，
+    // 这个数就变成 2106，测试红了，而红的原因与代码无关。**而这正是下面那段注释
+    // 早就说过的道理**（「档案会长，那个数每加一份新档案就要改一次，而改它的时候
+    // 没人分得清多出来的是真编辑还是新 bug」），只是当时只把它用在了修订数上。
+    //
+    // 光把 2103 改成 2106 更糟：下一次抓取又红一次，而每红一次就多一次「大概又长了
+    // 吧」的顺手上调——真有一天多出来的是重复条目，也会被同一个手势放过去。
+    //
+    // 所以拆成两条，各挡一个方向：
+    //
+    //   ① 只增不减——基线是 9 份档案时实测的那组数（少了就是真丢了东西）；
+    //   ② 不重复——每条标记对应一个不同的作品（多了通常是重复，不是新标记）。
+    //
+    // 两条合起来挡住了原来那条能挡的全部，而且不会因为用户又抓了一次就红。
+    const BASELINE = { movie: 2103, book: 145, music: 84, game: 604, drama: 5 };
+
     const byMedium = {};
     for (const m of marks) byMedium[m.medium] = (byMedium[m.medium] ?? 0) + 1;
-    assert.deepEqual(byMedium, { movie: 2103, book: 145, music: 84, game: 604, drama: 5 });
+
+    assert.deepEqual(
+      Object.keys(byMedium).sort(), Object.keys(BASELINE).sort(),
+      '媒介种类变了 —— 多一种或少一种都不该悄悄发生',
+    );
+    for (const [medium, floor] of Object.entries(BASELINE)) {
+      assert.ok(
+        byMedium[medium] >= floor,
+        `${medium} 只有 ${byMedium[medium]} 条，少于 9 份档案时实测的 ${floor} —— 标记只会增加，`
+        + '少了说明解析丢了东西',
+      );
+    }
+
+    // 一个作品只该有一条标记记录（多次观测走 revisions，不是多行）。
+    const seen = new Set(marks.map((m) => `${m.medium}:${m.subject.id}`));
+    assert.equal(
+      seen.size, marks.length,
+      '有作品出现了不止一条标记记录 —— 同一个作品的多次观测应当合进 revisions',
+    );
 
     // **标记的修订只应来自用户的编辑。**
     //
