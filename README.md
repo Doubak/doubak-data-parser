@@ -113,4 +113,4 @@ jq -c 'select(.revisions|length > 1) | {id: .subject.id, 状态: [.revisions[].f
 
 最后两行是这个项目的立身之本在数据上的样子。广播那一行：有条广播被观测了五次，内容一个字没变；而一条被标记页覆盖掉的「想看」短评，在广播里还在，还带着秒级时间戳。附图那一行守的是解析端与抓取端对「哪些图算数」的判据一致 —— 解析端更松会在 canonical 里留下抓取端从没取过的 URL，更严则等于悄悄丢图，两种都很难发现。
 
-下一步：把 canonical 交给 [`doubak-site-generator`](https://github.com/Doubak/doubak-site-generator) 生成静态站。
+下一步有两条，互不依赖：把 canonical 交给 [`doubak-site-generator`](https://github.com/Doubak/doubak-site-generator) 生成静态站，或者交给 [`doubak-export-adapters`](https://github.com/Doubak/doubak-export-adapters) 产出 NeoDB / Letterboxd / Goodreads 的导入文件。
