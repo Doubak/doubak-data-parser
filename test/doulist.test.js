@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   extractDoulist, extractDoulistItems, extractDoulistLinks, extractVisibility,
+  mergeDoulistPages,
 } from '../src/extract-doulist.js';
 
 const fx = (n) => readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf-8');
@@ -177,5 +178,71 @@ describe('条目：值钱的是评语', () => {
     // 印在页面上。sample.doubak.com 上那个可见的 `&#34;` 就是这么来的。
     const items = extractDoulistItems(LEDGER);
     assert.ok(items.every((i) => !/&#\d+;|&amp;|&quot;/.test(i.title ?? '')), '标题里还有实体');
+  });
+});
+
+/**
+ * 把同一份豆列的几页拼起来。
+ *
+ * 这条规则原来有**两份实现**：解析器 `parse.js` 里一份，扩展面板的内容预览里一份。
+ * 两份实现对同一份豆列可以给出不同的条目次序，而**次序错了看起来完全正常**——
+ * 还是那些作品，还是那些评语。现在只有这一份，扩展那边原样拿过去
+ * （`doubak-extension/src/vendor/parser/`，由 `tools/sync-extractors.mjs` 守新鲜度）。
+ */
+describe('几页拼成一份豆列', () => {
+  const page = (start, ...titles) => ({
+    start,
+    doulist: { id: '45473911', title: '游戏购买小账本', items: titles.map((t) => ({ title: t })) },
+  });
+
+  test('**按 start 升序拼，不按传进来的次序**', () => {
+    // 抓取顺序不可靠：广度优先的 frontier 会把几份豆列的页面交错排开，重试还会
+    // 让某一页迟到。而用户排过的清单，把第 2 页排到第 1 页前面就是改了内容。
+    const m = mergeDoulistPages([page(50, '第三页'), page(0, '第一页'), page(25, '第二页')]);
+    assert.deepEqual(m.doulist.items.map((i) => i.title), ['第一页', '第二页', '第三页']);
+  });
+
+  test('标题这些取第一页的，条目是各页接起来', () => {
+    const m = mergeDoulistPages([page(25, 'b'), page(0, 'a')]);
+    assert.equal(m.doulist.title, '游戏购买小账本');
+    assert.equal(m.doulist.id, '45473911');
+    assert.equal(m.doulist.items.length, 2);
+  });
+
+  test('**每一页原样回传**，调用方靠它把自己挂的东西带回去', () => {
+    // 解析器就是这样把每一页的 observation 带回去的（capture_ids 要全都指得回去）。
+    const withExtra = [
+      { ...page(25, 'b'), observation: { capture_ids: ['x#2'] } },
+      { ...page(0, 'a'), observation: { capture_ids: ['x#1'] } },
+    ];
+    const m = mergeDoulistPages(withExtra);
+    assert.deepEqual(m.pages.flatMap((p) => p.observation.capture_ids), ['x#1', 'x#2'],
+      '回传的次序也要是 start 升序');
+  });
+
+  test('空页照拼 —— 那是翻页的正常终点，不是错误', () => {
+    // 没有翻页器的豆列只能靠「再要一页、拿回来是空的」才知道到头，那一页照样进档案。
+    const m = mergeDoulistPages([page(0, 'a'), page(25)]);
+    assert.equal(m.doulist.items.length, 1);
+    assert.equal(m.pages.length, 2, '页数不该被吞掉 —— 调用方要自己决定怎么说');
+  });
+
+  test('一页都没有就返回 null，不返回一份空豆列', () => {
+    // 与 `extractDoulist` 认不出框架时同一条规矩：**一个「空记录」与一份真的空豆列
+    // 长得一模一样**，而两者的含义完全不同。
+    assert.equal(mergeDoulistPages([]), null);
+  });
+
+  test('**不分组** —— 传进来的就当成同一份豆列', () => {
+    // 两个调用方的分组键不一样：解析器按「哪份档案里的哪份豆列」，面板按豆列。
+    // 会悄悄出错的是拼接次序，不是分组；把分组也塞进来，这里就得认一个它不该
+    // 知道的概念（档案）。
+    //
+    // 所以判据是**行为**而不是源码长相：喂两份不同的豆列，它照拼不误——
+    // 「分组是调用方的事」这句话，只有这样才验得到。
+    const other = { start: 0, doulist: { id: '99999', title: '别的豆列', items: [{ title: 'z' }] } };
+    const m = mergeDoulistPages([page(25, 'b'), other, page(0, 'a')]);
+    assert.equal(m.doulist.items.length, 3);
+    assert.equal(m.doulist.id, '99999', 'start 相同时取先传进来的那一页 —— 它不认 id');
   });
 });

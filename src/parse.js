@@ -15,7 +15,7 @@ import { extractBroadcasts } from './extract-broadcast.js';
 import { topology, assertSingleAccount } from './topology.js';
 import { extractSubjectDetail } from './extract-subject.js';
 import { extractLongform } from './extract-longform.js';
-import { extractDoulist } from './extract-doulist.js';
+import { extractDoulist, mergeDoulistPages } from './extract-doulist.js';
 import { digestAll, sameRevision } from './digest.js';
 import {
   absenceAuthority, isContent, hasUnknownVerdict, isRecalibratable, implausible,
@@ -373,15 +373,20 @@ export function parse(sources, opts = {}) {
   //
   // **次序是内容的一部分**：用户排过的清单，把第 2 页排到第 1 页前面就是改了内容。
   const doulists = new Map();
-  for (const { src, id, pages } of doulistPages.values()) {
-    const ordered = [...pages.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
-    const first = ordered[0].d;
+  for (const { src, pages } of doulistPages.values()) {
+    // 拼接规则在 `mergeDoulistPages` 里，与抽取器同一个文件——扩展面板的内容预览
+    // 拿的是同一份（`doubak-extension/src/vendor/parser/`）。它原样回传每一页，
+    // 所以下面还能取到各页的 observation。
+    const merged = mergeDoulistPages([...pages].map(([start, v]) => ({
+      start, doulist: v.d, observation: v.observation,
+    })));
+    if (!merged) continue;
     upsertDoulist(doulists, {
-      d: { ...first, items: ordered.flatMap((p) => p.d.items) },
+      d: merged.doulist,
       account: src.manifest?.account,
-      observation: ordered[0].observation,
+      observation: merged.pages[0].observation,
       // 每一页都是这条记录的来源，全都要能指回去。
-      captureIds: ordered.flatMap((p) => p.observation.capture_ids ?? []),
+      captureIds: merged.pages.flatMap((p) => p.observation.capture_ids ?? []),
       parserVersion,
     });
   }
