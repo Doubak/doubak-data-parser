@@ -285,27 +285,68 @@ describe('对着真实档案端到端', () => {
     // **标记的修订只应来自用户的编辑。**
     //
     // 判据不是「有几条」——档案会长，那个数每加一份新档案就要改一次，而改它的时候
-    // 没人分得清多出来的是真编辑还是新 bug。判据是**每一次修订都必须是一次向前的
-    // 状态迁移**：想看 → 在看 → 看过。
+    // 没人分得清多出来的是真编辑还是新 bug。
     //
-    // 那才是这条断言真正要挡的东西。已经发生过两次的假修订都是**同状态**的：
-    // 短评旁边的 `(N 有用)` 从 5 变成 1、日记页脚的「1740人浏览」每抓一次涨一点
-    // ——两者都不会让状态动一下，所以都会被这条判据抓住。
+    // ## 前一版的判据错了，这里留着它错在哪
     //
-    // 实测 9 份档案：7 条多修订，全部是前进的（想看→看过 ×3、在看→看过 ×3、
-    // 想看→在看 ×1），一条同状态的都没有。
+    // 前一版要求**每一次修订都是一次向前的状态迁移**（想看 → 在看 → 看过），
+    // 理由是已经发生过两次的假修订都是同状态的：短评旁边的 `(N 有用)` 从 5 变成 1、
+    // 日记页脚的「1740人浏览」每抓一次涨一点。
+    //
+    // 2026-08-20 并进 4 份 7 月档案之后它红了，而**红得对**——但不是它想抓的东西：
+    // 《二十世纪电气目录》上有一次 `doing → doing`，查下来是用户自己按豆瓣的习惯
+    // 在原短评前面接了一句：
+    //
+    //     怎么京阿尼在这也能埋上音乐番的影子！ //看完了两集，真的是奇幻…
+    //
+    // **在看的时候改一句短评，是再正常不过的事。** 那个代理判据把一件正常的事
+    // 判成了故障，所以它是错的，不是数据错了。
+    //
+    // ## 换成三条各自说得清的判据
+    //
+    // 「同状态就可疑」本来是拿状态当代理去抓「用户其实没动过」。直接说那件事就行：
+    const USER_FIELDS = ['status', 'marked_at', 'rating', 'comment', 'tags'];
     const ORDER = { wish: 0, doing: 1, done: 2 };
     const multi = marks.filter((m) => m.revisions.length > 1);
-    assert.equal(multi.length, 7, `多修订的标记：${multi.map((m) => m.subject.id).join(' ')}`);
+    assert.ok(multi.length > 0, '一条多修订的标记都没有 —— 下面那个循环什么也没测');
+
     for (const m of multi) {
       for (let i = 1; i < m.revisions.length; i++) {
-        const before = m.revisions[i - 1].fields.status;
-        const after = m.revisions[i].fields.status;
+        const before = m.revisions[i - 1].fields;
+        const after = m.revisions[i].fields;
+
+        // ① 一条什么都没变的修订永远是 bug——它凭空多出来一次「用户改了东西」。
+        const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+          .filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+        assert.ok(changed.length > 0, `${m.subject.url} 的第 ${i + 1} 条修订什么都没变`);
+
+        // ② 变的必须**至少有一项是用户自己写的**。只有 `raw_meta` 之类的豆瓣目录
+        //    数据变了，那是豆瓣改了条目（实测它真的会：同一批档案里 43 个作品改过名），
+        //    不是用户编辑过，不该产生一条修订。
         assert.ok(
-          ORDER[after] > ORDER[before],
-          `${m.subject.url} 的第 ${i + 1} 条修订没有推进状态（${before} → ${after}）`
-          + '——同状态的多修订多半来自上游的易变量，不是用户的编辑',
+          changed.some((k) => USER_FIELDS.includes(k)),
+          `${m.subject.url} 的第 ${i + 1} 条修订只动了 ${changed.join(' ')}`
+          + '——全是豆瓣的目录数据，用户什么都没改，这是一条假修订',
         );
+
+        // ③ 状态**不许倒退**。前进和原地都合法（原地就是改了短评或评分），
+        //    但「看过 → 想看」几乎一定是抽取错了。
+        //    实测 17 份档案：doing→done 4、wish→done 3、wish→doing 1、doing→doing 1。
+        assert.ok(
+          ORDER[after.status] >= ORDER[before.status],
+          `${m.subject.url} 的状态倒退了（${before.status} → ${after.status}）`,
+        );
+      }
+    }
+
+    // ④ 那两个真实的假修订源头，直接照着形状挡：它们都是把豆瓣的易变计数器
+    //    抽进了用户的字里。状态代理抓不住同状态的真编辑，但这一条抓得住它们，
+    //    而且**不会误伤**。
+    const COUNTER = /[(（]\s*\d+\s*有用\s*[)）]|\d+\s*人浏览/;
+    for (const m of marks) {
+      for (const r of m.revisions) {
+        const c = r.fields.comment ?? '';
+        assert.ok(!COUNTER.test(c), `${m.subject.url} 的短评里混进了豆瓣的计数器：${c.slice(-40)}`);
       }
     }
 

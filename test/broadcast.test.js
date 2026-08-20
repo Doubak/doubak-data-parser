@@ -129,7 +129,7 @@ describe('豆瓣把长广播截断了', () => {
 describe('对着真实档案', () => {
   const DL = '/home/mewx/downloads/20260806';
 
-  test('**广播不可编辑 —— 3392 条，修订也是 3392 条**', (t) => {
+  test('**广播里用户写的那部分不可编辑**（作品名不算，那是豆瓣的）', (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     const { broadcasts } = parse(openAll(DL));
     // **不钉死条数。** 那个目录会随着新抓取长大——第一版写死 3392，用户多跑了一次
@@ -137,10 +137,36 @@ describe('对着真实档案', () => {
     // 不是「解析器对不对」。
     assert.ok(broadcasts.length > 3000, `只有 ${broadcasts.length} 条，像是没读到`);
 
-    // 真正要守的是**一比一**：广播发布后不可编辑，所以修订数应当恒等于记录数。
-    // 大于 1 说明抽取器或页面变了——不是用户改了广播。
-    const revisions = broadcasts.reduce((n, b) => n + b.revisions.length, 0);
-    assert.equal(revisions, broadcasts.length);
+    // 这条断言原先写的是「修订数恒等于记录数」，理由是广播发布后不可编辑。
+    //
+    // **那个前提只对一半。** 2026-08-20 并进 4 份 7 月 31 日的档案之后它红了：
+    // 3480 条修订对 3411 条记录。查下来 69 组相邻版本的差异**全部只在
+    // `target_title` 一个字段上**，一条都没碰 `text` / `rating` / `posted_at`。
+    //
+    // 因为挂在广播下面那张作品卡**不是**发布时冻住的——豆瓣是在你打开页面那一刻
+    // 现渲染它的。所以「F1：狂飙飞车」在 7 月抓到，8 月再抓就成了「F1」：
+    // 那是豆瓣改了自己的目录，不是用户改了广播。
+    //
+    // 一比一那个写法会把这类真实变化当成故障，而它恰恰是这个项目想留住的东西
+    // ——豆瓣自己不保留的改名历史。所以判据改成：**用户写的字一个都不许变，
+    // 允许变的只有豆瓣的作品名。**
+    const FROZEN = ['posted_at', 'text', 'action', 'status', 'rating',
+      'target_type', 'target_id', 'images', 'text_truncated', 'full_text_url'];
+    let compared = 0;
+    for (const b of broadcasts) {
+      const revs = [...b.revisions].sort((x, y) => (x.first_observed_at < y.first_observed_at ? -1 : 1));
+      for (let i = 1; i < revs.length; i++) {
+        compared += 1;
+        for (const f of FROZEN) {
+          assert.deepEqual(
+            revs[i].fields[f], revs[i - 1].fields[f],
+            `广播 ${b.upstream_id} 的 ${f} 变了 —— 广播发出去之后用户改不了它，`
+            + '这说明抽取器或页面结构变了',
+          );
+        }
+      }
+    }
+    assert.ok(compared > 0, '没有一条广播有多个修订，那上面那段循环什么也没测');
     assert.ok(broadcasts.some((b) => b.revisions[0].observations.length > 1), '没有一条被观测多次，那这条测试就是空的');
   });
 
