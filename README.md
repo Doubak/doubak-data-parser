@@ -1,6 +1,6 @@
 # doubak-parser
 
-[![test](https://github.com/Doubak/doubak-data-parser/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Doubak/doubak-data-parser/actions/workflows/test.yml?query=branch%3Amain)
+[![test](https://github.com/Doubak/doubak-data-parser/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Doubak/doubak-data-parser/actions/workflows/test.yml?query=branch%3Amain) [![Coverage Status](https://coveralls.io/repos/github/Doubak/doubak-data-parser/badge.svg?branch=main)](https://coveralls.io/github/Doubak/doubak-data-parser?branch=main)
 
 > **这是源码仓库。** 项目主页在 **<https://doubak.com>**。
 

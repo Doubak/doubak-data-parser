@@ -44,6 +44,25 @@ jobs:
           TZ: Pacific/Kiritimati
         run: npm test
 
+      # 覆盖率用 Node 自带的，不装任何东西；上传是 curl 打 Coveralls 的
+      # /jobs 端点，用 repo token 认证。**不引 coverallsapp/github-action**：
+      # 它只认 github-token，还要把 @coveralls 以 Role: Write 请进仓库。
+      #
+      # 只在 push 上跑：fork 来的 PR 拿不到 secrets，那时脚本会硬失败（它故意
+      # 不静默跳过），在 PR 上就成了一个和代码无关的红叉。
+      - name: 覆盖率 → Coveralls
+        if: github.event_name == 'push'
+        working-directory: doubak-data-parser
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        run: |
+          node --test --experimental-test-coverage \
+            --test-coverage-exclude='test/**' --test-coverage-exclude='tools/**' \
+            --test-reporter=lcov --test-reporter-destination=lcov.info \
+            --test-reporter=dot --test-reporter-destination=/dev/null \
+            "test/**/*.test.js"
+          node tools/coveralls.mjs lcov.info
+
       # 本地跑时若规范仓库不在场，一致性用例会「带原因跳过」。
       # 跳过在本地合理，在 CI 里等于没测——所以显式确认它们真的跑了。
       - name: 确认一致性用例确实跑了而不是跳过了
