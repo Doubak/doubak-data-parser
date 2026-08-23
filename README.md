@@ -1,5 +1,7 @@
 # doubak-parser
 
+[![test](https://github.com/Doubak/doubak-data-parser/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Doubak/doubak-data-parser/actions/workflows/test.yml?query=branch%3Amain)
+
 > **这是源码仓库。** 项目主页在 **<https://doubak.com>**。
 
 豆备 (Doubak) 的数据解析工具。把抓取工具产出的 **bundle**（WARC + 索引 + 清单）转换成 **canonical**——结构化、带修订历史、可以整个删掉重新生成的数据，用于制作自己的豆瓣网站、导入其他平台（例如 NeoDB）等。
