@@ -50,6 +50,19 @@ jobs:
       #
       # 只在 push 上跑：fork 来的 PR 拿不到 secrets，那时脚本会硬失败（它故意
       # 不静默跳过），在 PR 上就成了一个和代码无关的红叉。
+      #
+      # **排除项只有 test/** 一条，而且是量出来的，不是随手加的**：排除项会烂掉，
+      # 越少越好。曾经还排了 tools/**，那是反射性动作——coveralls.mjs 现在自己
+      # 有测试，排掉等于把一个测过的文件藏起来，去掉后 11 → 12 个文件、98.52%
+      # → 96.35%，低的那个才是真的。
+      #
+      # test/** 留着，两个原因，都实测过：测试文件按定义就是 ~100%，算进去只会
+      # 把总数拖向 100% 并盖住 src 里的窟窿；而且**完全不排除时这一步跑不完**
+      # ——120 秒还没结束，排除后是 1 秒。
+      #
+      # 真正该担心的遗漏不是这里写着的这一条，而是**没写出来的那些**：
+      # 从没被任何测试 import 的文件根本不进分母（本仓库的 bin/parse.js 就是），
+      # 它们不是 0%，是压根不存在。显式的排除项至少还看得见。
       - name: 覆盖率 → Coveralls
         if: github.event_name == 'push'
         working-directory: doubak-data-parser
@@ -57,9 +70,9 @@ jobs:
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
         run: |
           node --test --experimental-test-coverage \
-            --test-coverage-exclude='test/**' --test-coverage-exclude='tools/**' \
+            --test-coverage-exclude='test/**' \
             --test-reporter=lcov --test-reporter-destination=lcov.info \
-            --test-reporter=dot --test-reporter-destination=/dev/null \
+            --test-reporter=dot --test-reporter-destination=stdout \
             "test/**/*.test.js"
           node tools/coveralls.mjs lcov.info
 
