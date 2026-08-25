@@ -15,16 +15,16 @@ const argv = process.argv.slice(2);
 const flags = argv.filter((a) => a.startsWith('--'));
 const [root, outDir = 'canonical-out'] = argv.filter((a) => !a.startsWith('--'));
 
-// `--ignore_warning` 是同一个开关的下划线写法，一并认。项目里其它命令行都用连字符，
-// 但把人已经敲顺手的那个拼法判成「不认识」，不会让谁改得更对。
-const KNOWN = ['--ignore-warnings', '--ignore_warning'];
+// 只认一种写法。整个项目的命令行都用连字符（`--shelf-history`、`--no-shelf-history`、
+// `--sample=`…），多留一个下划线别名换来的是「到底哪个才对」，而不是少打一次字。
+const KNOWN = ['--ignore-warnings'];
 const bad = flags.filter((f) => !KNOWN.includes(f));
 if (bad.length) {
   console.error(`不认识这些开关：${bad.join(' ')}`);
   console.error(`能用的：${KNOWN.join(' / ')}`);
   process.exit(2);
 }
-const ignoreWarnings = flags.some((f) => KNOWN.includes(f));
+const ignoreWarnings = flags.includes('--ignore-warnings');
 
 if (!root) {
   console.error('用法: node bin/parse.js <bundle 目录> [输出目录] [--ignore-warnings]');
