@@ -95,11 +95,13 @@ export function topology(sources) {
  *
  * @param {ReturnType<typeof topology>} t
  */
-export function assertSingleAccount(t) {
-  if (t.accounts.length > 1) {
-    throw new Error(
-      `这个目录里混着 ${t.accounts.length} 个账号的档案（${t.accounts.join('、')}）。`
-      + '一起解析会把它们合进同一份 canonical，而且事后分不开。请分开放。',
-    );
-  }
+export function assertSingleAccount(t, opts = {}) {
+  if (t.accounts.length <= 1) return null;
+  const msg = `这个目录（含子目录）里混着 ${t.accounts.length} 个账号的档案`
+    + `（${t.accounts.join('、')}）。一起解析会把它们合进同一份 canonical，而且事后分不开。`;
+  // **绕过是给「我知道这是同一个人的两个账号」准备的，不是给「先跑起来再说」。**
+  // 所以它不让消息消失，只是把停下来换成说出来——一句被读到的告警，
+  // 和一次读不到的静默合并，代价差着一个量级。
+  if (opts.ignoreWarnings) return `${msg}（--ignore-warnings 让它继续了）`;
+  throw new Error(`${msg}请分开放，或者确认它们真的属于同一个人之后加 --ignore-warnings。`);
 }

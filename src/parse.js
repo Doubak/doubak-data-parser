@@ -45,7 +45,8 @@ const STATUS = { collect: 'done', do: 'doing', wish: 'wish' };
 
 /**
  * @param {import('./bundle-source.js').BundleSource[]} sources
- * @param {{parserVersion?: string, timezone?: string}} [opts]
+ * @param {{parserVersion?: string, timezone?: string, ignoreWarnings?: boolean}} [opts]
+ *   `ignoreWarnings` 只放行「混了多个账号」那一条，且照样把它写进 `warnings`。
  */
 export function parse(sources, opts = {}) {
   const parserVersion = opts.parserVersion ?? PARSER_VERSION;
@@ -54,7 +55,7 @@ export function parse(sources, opts = {}) {
   // 先体检，再解析。**分叉不拦**——两条分支只是同一个账号的两批观测，合并起来是
   // 信息更多而不是信息打架（理由与实测见 topology.js）。真该拦的是另外两件事。
   const topo = topology(sources);
-  assertSingleAccount(topo);
+  const accountWarning = assertSingleAccount(topo, { ignoreWarnings: opts.ignoreWarnings });
 
   /** @type {Map<string, object>} 身份键 → 记录 */
   const marks = new Map();
@@ -85,6 +86,8 @@ export function parse(sources, opts = {}) {
    */
   const details = new Map();
   const warnings = [];
+  // 被 --ignore-warnings 放行的那条，照样记进告警里：绕过的是「停下来」，不是「说出来」。
+  if (accountWarning) warnings.push({ type: 'multiple_accounts', accounts: topo.accounts, message: accountWarning });
   const stats = {
     bundles: 0,
     pages: 0,

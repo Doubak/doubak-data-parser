@@ -14,7 +14,7 @@
  * gzip member 解压即可——WARC 之所以每条记录单独成 member，就是为了这个。
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 
@@ -104,7 +104,18 @@ export class BundleSource {
 }
 
 /**
- * 列出一个目录下的所有 bundle。
+ * 列出一棵目录树下的所有 bundle，**含子目录**。
+ *
+ * 递归是因为真实的下载目录就是那样：解压出来的档案带一层外壳、按月份分了文件夹、
+ * 或者干脆几次导出堆在一起。让人先手工摊平，只会换来「摊漏了一份」——
+ * 而漏一份档案没有任何声响，产出照样是一份看着完整的 canonical。
+ *
+ * 两条边界：
+ *
+ * - **一个目录一旦认出是 bundle，就不再往里走。** 里面是段文件和索引，
+ *   不会再套一份档案；继续下钻只是白读。
+ * - **不跟软链接走，而且同一个真实路径只进一次。** 一个指回上层的软链接
+ *   足以让递归转不出来，而这种目录结构在下载目录里并不罕见。
  *
  * **顺序无关**（canonical/INGESTION.md §5.2），所以这里怎么排都行；按 bundle_id
  * 排只是为了让输出稳定、好比对。
@@ -114,13 +125,37 @@ export class BundleSource {
  */
 export function openAll(root) {
   const out = [];
-  for (const name of readdirSync(root)) {
-    const dir = join(root, name);
+  const seen = new Set();
+
+  const walk = (dir) => {
+    let real;
+    try {
+      real = realpathSync(dir);
+    } catch {
+      return; // 断掉的软链接、没权限：跳过，不是错
+    }
+    if (seen.has(real)) return;
+    seen.add(real);
+
     try {
       out.push(new BundleSource(dir));
+      return; // 是 bundle 了，里面没有更深的档案
     } catch {
-      // 不是 bundle 就跳过。**读不出来不等于出错**——目录里混着别的东西很正常。
+      // 不是 bundle。**读不出来不等于出错**——目录里混着别的东西很正常，接着往下找。
     }
-  }
+
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      // `isDirectory()` 对软链接是 false，所以这一句同时挡掉了跟着软链接走。
+      if (e.isDirectory()) walk(join(dir, e.name));
+    }
+  };
+
+  walk(root);
   return out.sort((a, b) => (a.bundleId < b.bundleId ? -1 : 1));
 }

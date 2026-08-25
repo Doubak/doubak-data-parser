@@ -77,6 +77,31 @@ describe('混账号', () => {
 
   test('同一个账号不报', () => {
     assert.doesNotThrow(() => assertSingleAccount(topology([src('a'), src('b')])));
+    assert.equal(assertSingleAccount(topology([src('a'), src('b')])), null);
+  });
+
+  test('--ignore-warnings 放行，但不让它闭嘴', () => {
+    // 绕过的是「停下来」，不是「说出来」：一句被读到的告警，和一次读不到的静默合并，
+    // 代价差着一个量级。所以这里既要不抛，又要拿得到那句话。
+    const t = topology([src('a'), src('b', { account: { user_id: '999' } })]);
+    const msg = assertSingleAccount(t, { ignoreWarnings: true });
+    assert.match(msg, /混着 2 个账号/);
+    assert.match(msg, /--ignore-warnings/);
+  });
+
+  test('放行之后那条要出现在 warnings 里，不能只留在返回值上', () => {
+    // 命令行只印 `warnings`。要是只当返回值传回去，用户在输出里一个字都看不到。
+    // 这里的档案是空的（没有 index 行），因为要验的是体检那一段，不是抽取。
+    const empty = (bundleId, m = {}) => ({
+      ...src(bundleId, m), index: [], crawlState: new Map(), coverage: [], status: 'complete',
+      payload: () => null, close: () => {},
+    });
+    const sources = [empty('a'), empty('b', { account: { user_id: '999' } })];
+    assert.throws(() => parse(sources), /混着 2 个账号/);
+    const { warnings } = parse(sources, { ignoreWarnings: true });
+    const hit = warnings.filter((w) => w.type === 'multiple_accounts');
+    assert.equal(hit.length, 1, '放行之后必须留下一条告警');
+    assert.deepEqual(hit[0].accounts, ['82160871', '999']);
   });
 });
 

@@ -11,9 +11,25 @@ import { join } from 'node:path';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
 
-const [root, outDir = 'canonical-out'] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const flags = argv.filter((a) => a.startsWith('--'));
+const [root, outDir = 'canonical-out'] = argv.filter((a) => !a.startsWith('--'));
+
+// `--ignore_warning` 是同一个开关的下划线写法，一并认。项目里其它命令行都用连字符，
+// 但把人已经敲顺手的那个拼法判成「不认识」，不会让谁改得更对。
+const KNOWN = ['--ignore-warnings', '--ignore_warning'];
+const bad = flags.filter((f) => !KNOWN.includes(f));
+if (bad.length) {
+  console.error(`不认识这些开关：${bad.join(' ')}`);
+  console.error(`能用的：${KNOWN.join(' / ')}`);
+  process.exit(2);
+}
+const ignoreWarnings = flags.some((f) => KNOWN.includes(f));
+
 if (!root) {
-  console.error('用法: node bin/parse.js <bundle 目录> [输出目录]');
+  console.error('用法: node bin/parse.js <bundle 目录> [输出目录] [--ignore-warnings]');
+  console.error('  目录**连同子目录**一起找，找到的每一份 bundle 都会喂进去');
+  console.error('  --ignore-warnings  混了多个账号时照样解析（合进同一份 canonical 之后分不开，慎用）');
   process.exit(2);
 }
 
@@ -24,7 +40,16 @@ if (sources.length === 0) {
 }
 
 const t0 = Date.now();
-const { marks, subjects, broadcasts, longform, doulists, warnings, stats, topology } = parse(sources);
+// 体检不过是**用户的输入有问题**，不是这个程序崩了。原样抛出去会印一屏栈回溯，
+// 而那屏字里唯一有用的一句被埋在中间——用户要读的是「怎么办」。
+let parsed;
+try {
+  parsed = parse(sources, { ignoreWarnings });
+} catch (err) {
+  console.error(`\n✖ ${err.message}`);
+  process.exit(1);
+}
+const { marks, subjects, broadcasts, longform, doulists, warnings, stats, topology } = parsed;
 
 mkdirSync(outDir, { recursive: true });
 const ndjson = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
