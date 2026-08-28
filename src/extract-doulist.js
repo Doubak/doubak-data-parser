@@ -211,7 +211,7 @@ export function extractDoulistItems(html) {
  *
  * 这个仓库为「同一件事有好几份实现」付过一次明码标价的钱：`&#34;` 印在
  * sample.doubak.com 上，根因是四份各自演化的 HTML 实体解码表。所以这条规则收在
- * 产生这些页面的抽取器旁边，扩展那边按 `tools/sync-extractors.mjs` 原样拿过去。
+ * 产生这些页面的抽取器旁边，扩展那边按 `tools/sync-vendor.mjs` 原样拿过去。
  *
  * ## 按 `start` 升序，不按抓取顺序
  *
