@@ -44,11 +44,30 @@ export const CANONICAL_VERSION = 'canonical/1.0';
 const STATUS = { collect: 'done', do: 'doing', wish: 'wish' };
 
 /**
- * @param {import('./bundle-source.js').BundleSource[]} sources
- * @param {{parserVersion?: string, timezone?: string, ignoreWarnings?: boolean}} [opts]
+ * bundle → canonical。
+ *
+ * ## 为什么是 async
+ *
+ * 这个函数本身不做 I/O，`sources` 是**传进来的**——但它们的 `payload(row)` 会做。
+ * Node 那边（`bundle-source.js`）是同步读文件，而扩展那边读的是 OPFS，只有异步
+ * 接口。全函数里唯一等它的地方就是下面那一处 `await src.payload(row)`；同步的
+ * 实现照样能 await，所以 Node 这一路的行为一点没变。
+ *
+ * 另一条路——让扩展先把捕获全读进内存再同步解析——是不行的：一份真实档案
+ * 9000 多条捕获、几百 MB 的 HTML，那等于把整个档案摊进堆里。
+ *
+ * @param {Array<{status: string, manifest: object|null, bundleId: string, index: object[],
+ *   crawlState: Map<string, object>, coverage: Map<string, object>,
+ *   payload: (row: object) => string | Promise<string>, close: () => void}>} sources
+ *   契约只有这八项。`BundleSource`（Node）与 `OpfsBundleSource`（扩展）各实现一份，
+ *   因为「字节从哪儿来」本来就该各写各的。
+ * @param {{parserVersion?: string, timezone?: string, ignoreWarnings?: boolean,
+ *   onProgress?: (p: {done: number, total: number, phase: string}) => void}} [opts]
  *   `ignoreWarnings` 只放行「混了多个账号」那一条，且照样把它写进 `warnings`。
+ *   `onProgress` 给界面用：分母是本地 index 的行数，**是可信的**——那跟豆瓣的
+ *   计数不是一回事（后者有时统计于审查之前、有时之后）。
  */
-export function parse(sources, opts = {}) {
+export async function parse(sources, opts = {}) {
   const parserVersion = opts.parserVersion ?? PARSER_VERSION;
   const tz = opts.timezone ?? 'Asia/Shanghai';
 
@@ -238,12 +257,17 @@ export function parse(sources, opts = {}) {
   // catalog 段里。
   work.sort((a, b) => (a.kind === 'detail' ? 0 : 1) - (b.kind === 'detail' ? 0 : 1));
 
-  /** @type {import('./bundle-source.js').BundleSource|null} */
+  /** @type {object|null} */
   let lastSrc = null;
+  let done = 0;
   for (const { src, row, kind, lfKind, medium, status, auth } of work) {
+    // 进度只在这一处报。**它是逐页的**，而 work 已经排好序，所以调用方拿到的
+    // 分母从头到尾不变——一个会变的分母比没有分母更糟。
+    opts.onProgress?.({ done: done += 1, total: work.length, phase: 'parse' });
+
     let html;
     try {
-      html = src.payload(row);
+      html = await src.payload(row);
     } catch (err) {
       warnings.push({ type: 'unreadable', capture: row.capture_id, error: String(err.message ?? err) });
       continue;

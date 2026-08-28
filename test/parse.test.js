@@ -218,13 +218,13 @@ describe('说不通的完整性声明不算数', () => {
     );
   });
 
-  test('**没有 coverage 时照旧按 crawl_state 判** —— 没有证据不等于有反证', () => {
+  test('**没有 coverage 时照旧按 crawl_state 判** —— 没有证据不等于有反证', async () => {
     assert.equal(absenceAuthority(clean, 'complete', undefined), 'whole_route');
     assert.equal(implausible(undefined), false);
     assert.equal(implausible({ claimed_count: 0, captured_count: 0 }), false);
   });
 
-  test('**只用来否掉，不用来授予**', () => {
+  test('**只用来否掉，不用来授予**', async () => {
     // 规范 §2：豆瓣的计数有时统计于审查之前、有时之后，证明不了完整。
     // 所以一条 bounded 路线不会因为数字好看就升级成 whole_route。
     assert.equal(
@@ -238,9 +238,9 @@ describe('说不通的完整性声明不算数', () => {
 describe('对着真实档案端到端', () => {
   const DL = '/home/mewx/downloads/20260806';
 
-  test('成链档案 → 数字与实测吻合', (t) => {
+  test('成链档案 → 数字与实测吻合', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { marks, subjects, warnings } = parse(openAll(DL));
+    const { marks, subjects, warnings } = await parse(openAll(DL));
 
     // **判据是「只增不减 + 不重复」，不是一个准确的总数。**
     //
@@ -366,14 +366,14 @@ describe('对着真实档案端到端', () => {
     assert.ok(impl.every((w) => w.captured < w.claimed * 0.5));
   });
 
-  test('**canonical 里不该再留着没解开的 HTML 实体**', (t) => {
+  test('**canonical 里不该再留着没解开的 HTML 实体**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 实测：修之前 196 处（`&#39;` 125、`&amp;` 40、`&#34;` 19、`&gt;` 7、`&lt;` 5），
     // 全都被站点生成器按规矩转义成 `&amp;#39;`，于是**原样印在页面上**。
     //
     // 修之后剩 1 处，而那一处是对的：原文是 `HITMAN&amp;amp;trade;`，解一次得到
     // 字面的 `&amp;trade;`——用户当年粘的就是一段已经转义过的标题。解第二次才是错的。
-    const { marks, subjects, broadcasts, longform } = parse(openAll(DL));
+    const { marks, subjects, broadcasts, longform } = await parse(openAll(DL));
     const texts = [];
     for (const rec of [...marks, ...subjects, ...broadcasts, ...longform]) {
       for (const rev of rec.revisions) {
@@ -387,7 +387,7 @@ describe('对着真实档案端到端', () => {
     assert.deepEqual(left, ['&amp;'], `canonical 里还留着没解开的实体：${left.slice(0, 10)}`);
   });
 
-  test('**广播引用的图 == 抓取端真的取回来的图**', (t) => {
+  test('**广播引用的图 == 抓取端真的取回来的图**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 这一条同时守着解析端与抓取端：两边对「哪些图算数」的判据必须逐字一致，
     // 而两边不一致的后果是不对称的、都很难发现——
@@ -397,7 +397,7 @@ describe('对着真实档案端到端', () => {
     //
     // 写成集合相等而不是数量相等：数量对得上、内容错位的情况是存在的
     // （第一版按主机名收窄，漏掉 qnmob3 的 2 张、又多算了别的 2 张就会刚好抵消）。
-    const { broadcasts } = parse(openAll(DL));
+    const { broadcasts } = await parse(openAll(DL));
     const referenced = new Set(
       broadcasts.flatMap((b) => b.revisions.flatMap((r) => r.fields.images ?? [])),
     );
@@ -423,11 +423,11 @@ describe('对着真实档案端到端', () => {
     );
   });
 
-  test('**被截断的广播，全文其实已经在档案里了**', (t) => {
+  test('**被截断的广播，全文其实已经在档案里了**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 这一条是这次修复的要点：截断不是「档案缺了数据」，是「档案缺了一个指针」。
     // 实测那两条的 full_text_url 都指向一篇日记，而两篇日记的全文早就抓下来了。
-    const { broadcasts, longform } = parse(openAll(DL));
+    const { broadcasts, longform } = await parse(openAll(DL));
     const cut = broadcasts.filter((b) => b.revisions.at(-1).fields.text_truncated);
     assert.ok(cut.length > 0, '真实档案里本该有被截断的广播，不然这条测试是空的');
 
@@ -446,10 +446,10 @@ describe('对着真实档案端到端', () => {
     }
   });
 
-  test('**又名要从作品详情页读出来**', (t) => {
+  test('**又名要从作品详情页读出来**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 详情页此前一张都没被解析过——aliases 字段早在 schema 里，值却硬编码成 null。
-    const { subjects } = parse(openAll(DL));
+    const { subjects } = await parse(openAll(DL));
     const withAlias = subjects.filter((s) => (s.revisions.at(-1).fields.aliases ?? []).length);
     assert.ok(withAlias.length > 1500, `只有 ${withAlias.length} 个有又名，抽查显示电影 94% 都有`);
 
@@ -460,9 +460,9 @@ describe('对着真实档案端到端', () => {
     assert.deepEqual(Object.keys(byMedium).sort(), ['movie', 'music']);
   });
 
-  test('**#info 整块收进来，键是豆瓣自己的标签**', (t) => {
+  test('**#info 整块收进来，键是豆瓣自己的标签**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { subjects } = parse(openAll(DL));
+    const { subjects } = await parse(openAll(DL));
     const withInfo = subjects.filter((s) => s.revisions.at(-1).fields.info);
 
     // 游戏与舞台剧的页面上根本没有 #info——**别在没有的地方硬造出来**。
@@ -477,21 +477,21 @@ describe('对着真实档案端到端', () => {
     assert.ok(Array.isArray(movie.revisions.at(-1).fields.info['导演']));
   });
 
-  test('**评论区的用户名不许混进 info** —— 那是第三方内容', (t) => {
+  test('**评论区的用户名不许混进 info** —— 那是第三方内容', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // span.pl 在页面别处还用来标评论区的用户名。越界的话，几十个陌生人的 id
     // 会变成字段名，存进档案主人的 canonical。
-    const { subjects } = parse(openAll(DL));
+    const { subjects } = await parse(openAll(DL));
     const keys = new Set();
     for (const s of subjects) for (const k of Object.keys(s.revisions.at(-1).fields.info ?? {})) keys.add(k);
     const looksLikeUser = [...keys].filter((k) => /^\(.*\)$/.test(k));
     assert.deepEqual(looksLikeUser, [], `这些键像用户名：${looksLikeUser.join(' ')}`);
   });
 
-  test('**值按 ` / ` 切，`(港/台)` 不许被切开**', (t) => {
+  test('**值按 ` / ` 切，`(港/台)` 不许被切开**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 实测裸斜杠切法把 `犯罪101(港/台)` 切成了两半，4022 张页面上切坏 176 条。
-    const { subjects } = parse(openAll(DL));
+    const { subjects } = await parse(openAll(DL));
     const broken = [];
     for (const s of subjects) {
       for (const vs of Object.values(s.revisions.at(-1).fields.info ?? {})) {
@@ -506,23 +506,23 @@ describe('对着真实档案端到端', () => {
     assert.deepEqual(broken.slice(0, 5), [], `${broken.length} 个值的括号不配对，像是被切坏了`);
   });
 
-  test('**又名的顺序不许动，也不去重**', (t) => {
+  test('**又名的顺序不许动，也不去重**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 顺序是豆瓣给的，而「哪个排第一」本身就是信息（通常是最通行的那个译名）。
-    const { subjects } = parse(openAll(DL));
+    const { subjects } = await parse(openAll(DL));
     const s = subjects.find((x) => x.id === '35267208' || (x.revisions.at(-1).fields.aliases ?? []).length > 2);
     assert.ok(s, '找不到一个有多个又名的作品');
     const a = s.revisions.at(-1).fields.aliases;
     assert.ok(a.every((x) => x === x.trim() && x.length), '每一项都该是去掉首尾空白的非空串');
   });
 
-  test('**追加是纯增的** —— 多喂一份档案不会丢掉任何东西', (t) => {
+  test('**追加是纯增的** —— 多喂一份档案不会丢掉任何东西', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // canonical/INGESTION.md §5.1。做成对全集的纯函数，这条性质是免费的；
     // 做成「在上次结果上打补丁」，它就要靠小心维护。
     const all = openAll(DL);
-    const few = parse(all.slice(0, 3)).marks;
-    const more = parse(all).marks;
+    const few = (await parse(all.slice(0, 3))).marks;
+    const more = (await parse(all)).marks;
 
     const key = (m) => `${m.medium}:${m.subject.id}`;
     const fewKeys = new Set(few.map(key));
@@ -531,10 +531,10 @@ describe('对着真实档案端到端', () => {
     assert.ok(more.length >= few.length);
   });
 
-  test('顺序无关', (t) => {
+  test('顺序无关', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const a = parse(openAll(DL)).marks.length;
-    const b = parse(openAll(DL).reverse()).marks.length;
+    const a = (await parse(openAll(DL))).marks.length;
+    const b = (await parse(openAll(DL).reverse())).marks.length;
     assert.equal(a, b);
   });
 });
@@ -580,9 +580,9 @@ describe('哪些判不出来是「改一行就能救回来」的', () => {
     assert.equal(isRecalibratable({ verdict: 'blocked', note: '判不出来：响应体为空' }), false);
   });
 
-  test('按路线分组统计 —— 一次改动通常只修好一条路线', (t) => {
+  test('按路线分组统计 —— 一次改动通常只修好一条路线', async (t) => {
     if (!existsSync('/home/mewx/downloads/20260806')) return t.skip('真实档案不在这台机器上');
-    const { stats } = parse(openAll('/home/mewx/downloads/20260806'));
+    const { stats } = await parse(openAll('/home/mewx/downloads/20260806'));
     // 实测：那两条 /topic/ 日记的旧写法，改好框架标志之后离线重跑就能救回来。
     assert.ok(stats.recalibratable['note.item'] >= 2, JSON.stringify(stats.recalibratable));
   });

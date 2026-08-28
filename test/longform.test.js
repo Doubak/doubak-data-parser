@@ -159,9 +159,9 @@ describe('评论', () => {
 describe('对着真实档案', () => {
   const DL = '/home/mewx/downloads/20260806';
 
-  test('**4 篇长文，每篇都只有 1 条修订** —— 抽取器是稳的', (t) => {
+  test('**4 篇长文，每篇都只有 1 条修订** —— 抽取器是稳的', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { longform } = parse(openAll(DL));
+    const { longform } = await parse(openAll(DL));
     // 同样不钉死篇数——它会随着新写的日记长大。要守的是「每篇只有一条修订」。
     assert.ok(longform.length >= 4, `只有 ${longform.length} 篇`);
     // **「只有一条修订」这句话不能是空的。** 刚发的日记只被抓过一次，对它而言那句话
@@ -178,9 +178,9 @@ describe('对着真实档案', () => {
     }
   });
 
-  test('那篇讲被删电影的日记，全文在档案里', (t) => {
+  test('那篇讲被删电影的日记，全文在档案里', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { longform } = parse(openAll(DL));
+    const { longform } = await parse(openAll(DL));
     const note = longform.find((r) => r.upstream_id === '868128497');
     assert.equal(note.revisions[0].fields.title, '想看的被河蟹的电影');
     assert.match(note.revisions[0].fields.body, /An Unfinished Film/);
@@ -224,7 +224,7 @@ describe('/topic/ 那种日记', () => {
     assert.match(extractLongform(topic(body), 'note').body, /第一段[\s\S]*第二段/);
   });
 
-  test('**浏览计数不许进正文** —— 它每次抓取都在涨', () => {
+  test('**浏览计数不许进正文** —— 它每次抓取都在涨', async () => {
     // 吞进去的话，同一篇日记每抓一次就多一条修订，也就是凭空捏造编辑历史。
     const a = extractLongform(topic('<p>一字未改</p>', 4), 'note');
     const b = extractLongform(topic('<p>一字未改</p>', 5), 'note');

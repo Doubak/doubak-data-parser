@@ -129,9 +129,9 @@ describe('豆瓣把长广播截断了', () => {
 describe('对着真实档案', () => {
   const DL = '/home/mewx/downloads/20260806';
 
-  test('**广播里用户写的那部分不可编辑**（作品名不算，那是豆瓣的）', (t) => {
+  test('**广播里用户写的那部分不可编辑**（作品名不算，那是豆瓣的）', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { broadcasts } = parse(openAll(DL));
+    const { broadcasts } = await parse(openAll(DL));
     // **不钉死条数。** 那个目录会随着新抓取长大——第一版写死 3392，用户多跑了一次
     // 就红了，而什么都没坏。钉死一个会自然变化的数，测的是「档案有没有变」，
     // 不是「解析器对不对」。
@@ -170,11 +170,11 @@ describe('对着真实档案', () => {
     assert.ok(broadcasts.some((b) => b.revisions[0].observations.length > 1), '没有一条被观测多次，那这条测试就是空的');
   });
 
-  test('**被标记页覆盖掉的短评，广播里还在**', (t) => {
+  test('**被标记页覆盖掉的短评，广播里还在**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 这是整个项目要买的东西：不是「我标了什么」，而是「我当时说了什么」。
     // 那条「想看」短评在标记页上已经被「看过」的短评覆盖了。
-    const { broadcasts, marks } = parse(openAll(DL));
+    const { broadcasts, marks } = await parse(openAll(DL));
     const bc = broadcasts.find((b) => (b.revisions[0].fields.text ?? '').includes('能上6分'));
     assert.ok(bc, '广播里找不到那条被覆盖的短评');
     assert.equal(bc.revisions[0].fields.posted_at.precision, 'second');

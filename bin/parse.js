@@ -44,7 +44,7 @@ const t0 = Date.now();
 // 而那屏字里唯一有用的一句被埋在中间——用户要读的是「怎么办」。
 let parsed;
 try {
-  parsed = parse(sources, { ignoreWarnings });
+  parsed = await parse(sources, { ignoreWarnings });
 } catch (err) {
   console.error(`\n✖ ${err.message}`);
   process.exit(1);

@@ -97,8 +97,8 @@ describe('canonical 一致性用例', () => {
     // 免得读的人还要去翻另一个仓库。
     const why = readFileSync(join(dir, 'EXPECTED.txt'), 'utf-8').trim();
 
-    test(name, () => {
-      const out = parse(openAll(join(dir, 'bundles')));
+    test(name, async () => {
+      const out = await parse(openAll(join(dir, 'bundles')));
       const got = summarize(out, out.warnings);
 
       for (const [key, want] of Object.entries(expect)) {

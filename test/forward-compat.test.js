@@ -72,7 +72,7 @@ describe('来自未来的档案：读得动，且不丢东西', () => {
     assert.equal(future.intent, 'future.route.that.does.not.exist.yet');
   });
 
-  test('**认不出的路线被跳过，而不是崩掉或被当成已知的**', { skip }, () => {
+  test('**认不出的路线被跳过，而不是崩掉或被当成已知的**', { skip }, async () => {
     // 解析器只处理它认识的 intent，其余的静静跳过。关键在于「跳过」而不是「猜」：
     // 一条 `future.route` 不该被当成 broadcast 或 mark 去抽——那会产出错数据，
     // 而且不报错。
@@ -85,7 +85,7 @@ describe('来自未来的档案：读得动，且不丢东西', () => {
     // 最后一条是重点：未知 intent 是规范预期内的情形（开放词表），报警的话，
     // 将来每加一条路线，所有旧解析器都会开始刷屏。
     const srcs = openAll(join(FUTURE, '..')).filter((s) => s.dir.endsWith('from-the-future'));
-    const out = parse(srcs);
+    const out = await parse(srcs);
 
     assert.equal(out.stats.bundles, 1, '这份档案该被读到');
     assert.ok(out.stats.pages >= 1, 'index 里的行该被走一遍');
