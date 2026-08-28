@@ -91,6 +91,32 @@ jq -c 'select(.revisions|length > 1) | {id: .subject.id, 状态: [.revisions[].f
 
 **对全集的纯函数。** 不是「在上次结果上打补丁」。对 N 份档案跑一遍、再对 N+1 份跑一遍，第二次不得丢掉第一次得到的任何东西。做成纯函数，这条性质是免费的。
 
+## 同一份代码也跑在浏览器扩展里
+
+`src/` 下**除了 `bundle-source.js` 之外的每一个文件**都不碰 node 内建模块，
+浏览器扩展把它们逐字节拷进 `src/vendor/parser/`，在 OPFS 上跑同一套解析
+（`tools/sync-vendor.mjs --check` 由两边的 CI 守着）。`test/portable.test.js`
+按目录和按依赖闭包各扫一遍，加了个 `node:` import 就会红。
+
+界线是 **「字节从哪儿来」各写各的，「字节怎么解释」只有一份**。所以 `parse()` 不收
+目录，收的是一组满足八项契约的源：
+
+```
+status · manifest · bundleId · index · crawlState · coverage · payload · close
+```
+
+只有 `payload(row)` 做 I/O，也正因为它 `parse()` 是 `async` 的——Node 这边同步读文件，
+扩展那边读 OPFS 只有异步接口，而同步实现照样能 `await`，所以命令行这一路行为没变。
+契约由 `portable.test.js` 钉着：多认一个方法，扩展那边就会少实现一个，而缺的那个
+**只在运行时才炸**。
+
+同一个理由下 `digest.js` 不再用 `node:crypto`，改用本仓库的 `sha256.js`（同步、纯 JS）。
+`crypto.subtle` 会把 `fieldDigest` 染成 async，而它是逐字段调的——一份真实档案约 7.5 万次。
+实测慢 4.2 倍，整趟合计半秒。手写哈希在这里可以接受，是因为标准答案就在旁边而且比对
+是穷尽的（`test/sha256.test.js` 拿 `node:crypto` 对拍官方向量、0–130 每个长度、代理对、
+以及真实页面里抽出来的每个字段）；**摘要算错不会抛异常，只会让所有记录同时看起来被
+编辑过**——canonical 只比较同一 `parser_version` 的修订，摘要一偏移那道保护就失效了。
+
 ## 规范
 
 行为规定在 [`doubak-data-specs/canonical/`](https://github.com/Doubak/doubak-data-specs)：
