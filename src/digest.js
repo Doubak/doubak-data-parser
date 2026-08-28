@@ -15,9 +15,14 @@
  * 否则改一次评分会让短评也看起来被重写过。而「这条评论什么时候改的」正是要回答的
  * 问题——生成出来的那个真实例子里，两版之间变了 status/marked_at/rating/comment/tags
  * 五个字段，没变的只有 raw_meta；整条一个摘要的话，这个区别就没了。
+ *
+ * ## 哈希用的是本仓库那份，不是 node:crypto
+ *
+ * 这个文件要能原样跑在浏览器扩展里（`sync-vendor.mjs` 会把它抄过去），所以
+ * 不能 import 任何内建模块。理由与对拍办法见 `sha256.js`。
  */
 
-import { createHash } from 'node:crypto';
+import { sha256 } from './sha256.js';
 
 /**
  * @param {unknown} value
@@ -36,7 +41,7 @@ export function fieldDigest(value) {
     .replace(/[ \t]+$/gm, '')
     .replace(/\s+$/, '');
 
-  return `sha256:${createHash('sha256').update(norm, 'utf-8').digest('hex')}`;
+  return `sha256:${sha256(norm)}`;
 }
 
 /** JSON.stringify 的 replacer：把对象的键排序，让摘要与键序无关。 */
