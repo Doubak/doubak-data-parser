@@ -132,17 +132,41 @@ status · manifest · bundleId · index · crawlState · coverage · payload · 
 
 ## 现状
 
-标记、作品、广播、长文、豆列五类都做了。拿十份成链的真实档案跑通，零告警：
+标记、作品、广播、长文、豆列五类都做了。拿十七份真实档案（2026-07-31 → 2026-08-20）跑通：
 
 ```
-标记 2940 条（修订 2943）  多出的 3 条恰好是三次真实的状态迁移
-作品 2940 个
-广播 3394 条（修订 3394）  一比一 —— 广播发布后不可编辑，这条性质在真实数据上成立
+标记 2950 条（修订 2959）  多出的 9 条是真实的编辑
+作品 2950 个（修订 2971）
+广播 3411 条（修订 3480）  正文一个字没变；多出的 69 条全都只差 target_title
 长文 5 篇                  日记 3 + 评论 2，全文
-广播附图 124 张            与档案里 asset.status_photo 的集合**逐个相等**
+广播附图 132 张            与档案里 asset.status_photo 的集合**逐个相等**
 豆列 6 份（134 个条目）    其中 62 条带自己写的评语；1 份是私密的
 ```
 
-最后两行是这个项目的立身之本在数据上的样子。广播那一行：有条广播被观测了五次，内容一个字没变；而一条被标记页覆盖掉的「想看」短评，在广播里还在，还带着秒级时间戳。附图那一行守的是解析端与抓取端对「哪些图算数」的判据一致 —— 解析端更松会在 canonical 里留下抓取端从没取过的 URL，更严则等于悄悄丢图，两种都很难发现。
+广播那一行值得读两遍。**正文冻结**这条性质在真实数据上成立——3411 条广播的 `text`／`rating`／`posted_at` 一次都没变过。而修订数不是一比一：挂在广播下面那张作品卡是豆瓣在你打开页面那一刻**现渲染**的，所以它改个片名就会产生一条修订。那 69 条差异**每一条都只差 `target_title`**，一条都没碰正文。（曾经有一条断言写的是「修订数恒等于记录数」，它太强了——把豆瓣自己的改名当成了抽取器故障，而那些改名恰恰是档案该留住的东西。）
 
-下一步有两条，互不依赖：把 canonical 交给 [`doubak-site-generator`](https://github.com/Doubak/doubak-site-generator) 生成静态站，或者交给 [`doubak-export-adapters`](https://github.com/Doubak/doubak-export-adapters) 产出 NeoDB / Letterboxd / Goodreads 的导入文件。
+附图那一行守的是解析端与抓取端对「哪些图算数」的判据一致 —— 解析端更松会在 canonical 里留下抓取端从没取过的 URL，更严则等于悄悄丢图，两种都很难发现。
+
+### 别的抓取工具存下来的页面也能喂进来
+
+[`doubak-import-adapters`](https://github.com/Doubak/doubak-import-adapters) 把第三方工具（目前是前代的 `its-my-data/doubak`）存下来的页面转成合规的 bundle，**这个解析器一行都不用改**就能读——导入进来的档案只是目录里多出来的几个起点，而分叉不需要你做选择。
+
+实测把 2022-12 → 2024-08 那 7 份导入档案和上面 17 份放进同一个目录：
+
+```
+标记 2950 → 2955        广播 3411 → 3413        （记录只多了 7 条）
+标记修订 2959 → 3105    广播修订 3480 → 3856
+多修订的标记 8 → 147
+```
+
+**价值不在记录数，在那 20 个月的编辑史。** 上面那 17 份档案整部编辑史只有 9 条修订，因为第一次抓取是 2026-07。
+
+一句注意：解析器**不校验档案完整性**，它只要求有一份能解析的 `index-*.ndjson`。段的 sha256、`record_count`、每行的 schema、以及每行都带着的 `content_sha256`，一个都不查（读不出来的捕获会记一条 `unreadable` 告警，gzip 自己的 CRC 也挡得住位翻转，但仅此而已）。**要验完整性请跑规范仓库自带的那个** ——它是另一边写的，而这正是它的价值：
+
+```sh
+python3 <doubak-data-specs>/bundle/v1/validate.py <某份档案的目录>
+```
+
+### 再往下
+
+两条，互不依赖：把 canonical 交给 [`doubak-site-generator`](https://github.com/Doubak/doubak-site-generator) 生成静态站，或者交给 [`doubak-export-adapters`](https://github.com/Doubak/doubak-export-adapters) 产出 NeoDB / Letterboxd / Goodreads 的导入文件。
