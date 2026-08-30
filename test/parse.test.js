@@ -18,6 +18,29 @@ import { extractMarks } from '../src/extract.js';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
 
+/**
+ * 哪几份是**重建出来的**档案。
+ *
+ * `decoded_body+synthesized_headers` 是 bundle/1.3 里专为这件事新增的值
+ * （SPEC §6.4.1「正文是真的，头部是编的」）：这份档案是拿别人的工具存下来的
+ * 字节重建的，所以它只可能有那个工具当年存过的东西。
+ *
+ * **判据取 capture_fidelity，不取 producer 的名字。** 按名字判会在第二个导入
+ * 适配器出现时失效，而那时相关的测试会以「抽取器松了」的名义报错——归错因。
+ *
+ * 放在这里而不是各测试里各写一份：两份定义迟早会漂，而漂了之后两条测试会对
+ * 「哪些档案该被宽容」给出不同答案，且都是绿的。
+ *
+ * @param {Array<{bundleId: string, index: object[]}>} sources
+ */
+function rebuiltBundleIds(sources) {
+  const RECONSTRUCTED = 'decoded_body+synthesized_headers';
+  return new Set(
+    sources.filter((s) => s.index.every((r) => r.capture_fidelity === RECONSTRUCTED))
+      .map((s) => s.bundleId),
+  );
+}
+
 describe('缺失推断的权限', () => {
   const clean = { contiguous: true, gaps: [], enumeration: 'full' };
 
@@ -350,17 +373,67 @@ describe('对着真实档案端到端', () => {
       }
     }
 
-    // 墓碑：电影 1 + 游戏 7。作品名必须是 null——「未知电影」是占位符不是标题。
+    // 墓碑：电影 1 + 游戏 7。
     assert.equal(marks.filter((m) => m.subject.upstream_deleted).length, 8);
     const tombs = subjects.filter((s) => s.upstream_deleted);
     assert.equal(tombs.length, 8);
-    assert.ok(tombs.every((s) => s.revisions.every((r) => r.fields.title === null)));
+
+    // **最新那一版的名字必须是 null**——「未知电影」是豆瓣的占位符，不是标题。
+    // 填进去它会一路传到页面标题、外部检索、导出文件里。
+    for (const t of tombs) {
+      assert.equal(
+        t.revisions.at(-1).fields.title, null,
+        `${t.medium}/${t.id} 最新一版的作品名不是 null`,
+      );
+    }
+
+    // **但更早的版本可以有名字，而且这正是档案在起作用。**
+    //
+    // 这一条原来写的是「每一版都必须是 null」，而那是在只有 2026 年的档案时
+    // 写下的。把前代工具 2022–2024 的档案导进来之后它就不成立了：实测 8 个
+    // 墓碑里有 3 个留下了真名——
+    //
+    //   movie/11611021  在这世界的角落 / この世界の片隅に
+    //   game/24299254   瘟疫公司 Plague Inc.
+    //   game/27054820   瘟疫公司：物竞天择 Plague Inc: Evolved
+    //
+    // 老档案在豆瓣删掉它们**之前**看见过。墓碑不是「一直无名」，是「变成了
+    // 无名」，而一份看着它发生的档案正是这个项目的目的。
+    //
+    // 这条断言是**下界**：3 是实测值，将来再导进更早的档案只会更多。写成
+    // 恒等会让「多救回一个名字」表现成测试失败。
+    const named = tombs.filter((t) => t.revisions.some((r) => r.fields.title !== null));
+    assert.ok(
+      named.length >= 3,
+      `只有 ${named.length} 个墓碑留下过真名，实测应当至少 3 个`
+      + `（老档案在豆瓣删掉它们之前看见过）`,
+    );
 
     // **这份真实档案里确实有 24 条说不通的完整性声明**（三份档案各 8 条路线），
     // 成因是当年那两个已经修掉的生产者 bug。档案是冻结的，所以告警会一直在——
     // 而它就该一直在：那是「这几份档案的声明不可信」的记录。
+    //
+    // 另外**只**允许一类：重建档案里的 `broadcast_images`。前代工具的广播页
+    // 上有一种附图写法（`upload-pic-wrapper` + `data-href`）现在的抽取器还不
+    // 认得，容器在、一张也抽不出来——而这个告警存在的全部意义就是让这件事
+    // 别悄悄过去（「没有图」与「不认识这些图」在数据上一模一样）。
+    //
+    // 写成**上界**而不是恒等：把那种写法认出来之后这个数会下降，那时这条测试
+    // 不该因为「修好了」而变红。但它管得住三件事——真抓的档案里出现任何
+    // 抽取器退化、出现别的 kind、以及数量变多，都会红。
+    const KNOWN_STALE = 50;
+    const rebuilt = rebuiltBundleIds(openAll(DL));
+    assert.ok(rebuilt.size > 0, '一份重建的档案都没认出来，这个宽容就等于放行一切');
     const other = warnings.filter((w) => w.type !== 'implausible_full');
-    assert.deepEqual(other, [], '除了那几条已知的假声明，不该有别的告警');
+    const badStale = other.filter((w) => !(
+      w.type === 'extractor_stale' && w.kind === 'broadcast_images'
+      && rebuilt.has(w.capture.split('#')[0])
+    ));
+    assert.deepEqual(badStale, [], '除了那几条已知的假声明与重建档案里那种没认出来的附图，不该有别的告警');
+    assert.ok(
+      other.length <= KNOWN_STALE,
+      `重建档案里没认出来的附图从 ${KNOWN_STALE} 涨到了 ${other.length}——涨了就是新问题`,
+    );
     const impl = warnings.filter((w) => w.type === 'implausible_full');
     assert.ok(impl.length > 0, '这份档案本该有假声明告警，不然这条测试是空的');
     assert.ok(impl.every((w) => w.captured < w.claimed * 0.5));
@@ -417,9 +490,57 @@ describe('对着真实档案端到端', () => {
     }
 
     assert.ok(captured.size > 100, `档案里只有 ${captured.size} 张广播附图，像是没读到`);
+
+    // **重建出来的档案要单独算。**
+    //
+    // 前代命令行工具只存了 HTML，一张图都没存。把它的档案导进来之后，广播里
+    // 那些图的 URL 照样抽得出来（正文是真的），但字节从来就不存在——这不是
+    // 判据不一致，是那个生产者根本没有图片这条路线。
+    //
+    // 判据见 `rebuiltBundleIds()`。
+    const rebuilt = rebuiltBundleIds(openAll(DL));
+    assert.ok(rebuilt.size > 0, '一份重建的档案都没认出来，这条测试等于退化成了老样子');
+
+    /** 被「真抓过的档案」引用的图。这些必须有字节。 */
+    const fromRealCrawl = new Set();
+    /** 只被重建档案引用的图。这些**本来就不该有**字节。 */
+    const fromRebuiltOnly = new Set();
+    for (const b of broadcasts) {
+      for (const rev of b.revisions) {
+        const anyReal = rev.observations.some((o) => !rebuilt.has(o.bundle_id));
+        for (const u of rev.fields.images ?? []) {
+          (anyReal ? fromRealCrawl : fromRebuiltOnly).add(u);
+        }
+      }
+    }
+    // 同一张图可能既被重建档案看到、又被真抓的档案看到——那就归后者。
+    for (const u of fromRealCrawl) fromRebuiltOnly.delete(u);
+
+    // ① 严的那一半照旧：真抓过的档案里，引用与字节必须**逐个相等**。
+    //    实测 132 == 132。
     assert.deepEqual(
-      [...referenced].sort(), [...captured].sort(),
+      [...fromRealCrawl].sort(), [...captured].sort(),
       'canonical 引用的图与档案里真的有的图对不上',
+    );
+
+    // ② **抓到的每一张都必须被引用**，这一条对整份档案成立，一个例外都不给：
+    //    字节在档案里、canonical 却不提它，等于悄悄丢了一张图。
+    assert.deepEqual(
+      [...captured].filter((u) => !referenced.has(u)), [],
+      '有图的字节躺在档案里，canonical 却没引用它',
+    );
+
+    // ③ 把缺口**说出来**，而不是放过去：只被重建档案引用的那些，必须一张
+    //    字节都没有。哪天有了，说明上面那个划分错了——而那时 ① 会失去意义，
+    //    所以这一条是在守 ① 的前提。实测 20 张，全部没有字节。
+    assert.deepEqual(
+      [...fromRebuiltOnly].filter((u) => captured.has(u)), [],
+      '重建的档案里居然有图片字节？那上面按 capture_fidelity 的划分就不成立了',
+    );
+    assert.ok(
+      fromRebuiltOnly.size > 0,
+      '一张「只被重建档案引用」的图都没有——要么这个目录里没有导入的档案，'
+      + '要么划分逻辑坏了，两种情况这条测试都不该是绿的',
     );
   });
 

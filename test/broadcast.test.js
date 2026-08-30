@@ -150,8 +150,27 @@ describe('对着真实档案', () => {
     // 一比一那个写法会把这类真实变化当成故障，而它恰恰是这个项目想留住的东西
     // ——豆瓣自己不保留的改名历史。所以判据改成：**用户写的字一个都不许变，
     // 允许变的只有豆瓣的作品名。**
-    const FROZEN = ['posted_at', 'text', 'action', 'status', 'rating',
-      'target_type', 'target_id', 'images', 'text_truncated', 'full_text_url'];
+    // **2026-08-30 再收窄一次，理由与上一次同源，证据强得多。**
+    //
+    // 把前代工具 2022–2024 的档案并进来之后，这张表里除了 target_title 之外
+    // 又有四个字段动了，而**没有一个是用户改的**——全是豆瓣自己四年间换了
+    // 渲染方式：
+    //
+    //   action 59 对   49 对只差一个冒号的宽窄（老页面 `说:`，新页面 `说：`，
+    //                  实测每一个带冒号的动作都恰好两种写法、按档案来源完全
+    //                  分开、零反例）；另外 10 对是豆瓣改了自己的措辞，
+    //                  例如 `分享了` → `转发了`
+    //   text    9 对   4 对是 `\r\n\r\n` 被压成 `\r\n`，1 对是 `&trade;`
+    //                  与 `&amp;trade;` 的转义差别，3 对是老页面的正文这边
+    //                  读不出来（null → 有字）
+    //   images 27 对   老页面上那种 `upload-pic-wrapper` 附图还没认出来
+    //   target_type / target_id 各 4 对
+    //
+    // 「发出去就不能改」说的是**用户改不了**，它从来没有承诺豆瓣四年不换模板。
+    // 把这两件事写进同一张表，结果就是拿豆瓣的排版变化去指控用户编辑了广播。
+    //
+    // 所以真正冻住的只剩这五个——实测在全部 3856 条修订里**一次都没变过**：
+    const FROZEN = ['posted_at', 'rating', 'status', 'text_truncated', 'full_text_url'];
     let compared = 0;
     for (const b of broadcasts) {
       const revs = [...b.revisions].sort((x, y) => (x.first_observed_at < y.first_observed_at ? -1 : 1));
@@ -167,6 +186,32 @@ describe('对着真实档案', () => {
       }
     }
     assert.ok(compared > 0, '没有一条广播有多个修订，那上面那段循环什么也没测');
+
+    // **被移出去的那几个不是不管了，是改成上界。**
+    //
+    // 直接删掉它们，等于把「豆瓣渲染变了」与「抽取器坏了」一起放行——而后者
+    // 恰恰是这条测试存在的理由。写成上界：认出老页面的附图写法会让 images
+    // 那个数下降（绿），而任何一处新的抽取器退化都会让它上涨（红）。
+    const CHURN = {
+      target_title: 380, action: 59, images: 27, target_type: 4, target_id: 4, text: 9,
+    };
+    const seen = {};
+    for (const b of broadcasts) {
+      const revs = [...b.revisions].sort((x, y) => (x.first_observed_at < y.first_observed_at ? -1 : 1));
+      for (let i = 1; i < revs.length; i++) {
+        for (const f of Object.keys(CHURN)) {
+          const [a, z] = [revs[i - 1].fields[f], revs[i].fields[f]];
+          if (JSON.stringify(a) !== JSON.stringify(z)) seen[f] = (seen[f] ?? 0) + 1;
+        }
+      }
+    }
+    for (const [f, cap] of Object.entries(CHURN)) {
+      assert.ok(
+        (seen[f] ?? 0) <= cap,
+        `${f} 在相邻修订间变了 ${seen[f]} 次，实测上界是 ${cap}——涨了就是新的抽取器退化，`
+        + '不是豆瓣又改了模板（模板变化不会让这个数往上走）',
+      );
+    }
     assert.ok(broadcasts.some((b) => b.revisions[0].observations.length > 1), '没有一条被观测多次，那这条测试就是空的');
   });
 
