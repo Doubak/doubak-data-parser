@@ -43,19 +43,26 @@ function listPage({ cid, date, comment }) {
  *
  * 顺带把契约本身钉在这里：多一项少一项，这个文件就跑不起来。
  */
-function memorySource({ bundleId, observedAt, html }) {
+function memorySource({
+  bundleId, observedAt, html,
+  account = { user_id: '82160871', username: 'u' },
+  intent = 'interest.list.movie.collect',
+  routeKey = 'interest.movie.collect',
+}) {
   const row = {
     capture_id: `${bundleId}#000001`,
     url: 'https://movie.douban.com/people/u/collect?start=0',
-    intent: 'interest.list.movie.collect',
-    route_key: 'interest.movie.collect',
+    intent,
+    route_key: routeKey,
     surface: 'html',
     verdict: 'ok',
     observed_at: observedAt,
   };
   return {
     status: 'complete',
-    manifest: { bundle_id: bundleId, account: { user_id: '82160871', username: 'u' } },
+    // `account: null` 造的是**没有 manifest** 的档案——抓到一半就是这样，
+    // 一个目录里混着好几份档案时除了一份之外也都是这样。
+    manifest: account ? { bundle_id: bundleId, account } : null,
     bundleId,
     index: [row],
     crawlState: new Map(),
@@ -142,5 +149,69 @@ describe('data-cid 是 2023-12 才有的，两边的观测必须认成同一条'
   test('作品记录始终只有一条 —— 它按 (媒介, 作品 id) 认，与 data-cid 无关', async () => {
     const out = await parse([before, after]);
     assert.equal(out.subjects.length, 1);
+  });
+});
+
+describe('没有 manifest 的档案归到哪个账号名下', () => {
+  /** 同一部电影，两次观测都没有 data-cid —— 走的正是退化键那条路。 */
+  const page = () => listPage({ cid: null, date: '2025-05-05', comment: '一样的短评' });
+
+  test('**`unknown` 不许成为第二个键空间**', async () => {
+    // 退化键是 `d:<账号>:<媒介>:<作品 id>`。没有 manifest 的档案拿不到账号，
+    // 原来就写成 `'unknown'`——于是同一个作品在两种档案里落到两个不相交的键上，
+    // 与上面那个 data-cid 的 bug 是同一个形状，只是换了个字段来劈。
+    //
+    // 实测：9 份没有 manifest 的档案并进来，2955 个作品出了 2960 条标记，
+    // 5 部舞台剧一分为二（两半的 status / rating / marked_at 完全一样，
+    // 只有 first_observed_at 不同）。只有舞台剧中招，因为它的列表页没有
+    // data-cid；带上游 id 的走 `u:` 键，与账号无关，照常合并。
+    const noManifest = memorySource({
+      bundleId: '20260730T102904Z-aaaaaa', observedAt: '2026-07-30T10:29:00+08:00',
+      account: null, html: page(),
+    });
+    const withManifest = memorySource({
+      bundleId: '20260731T051333Z-bbbbbb', observedAt: '2026-07-31T05:13:00+08:00',
+      html: page(),
+    });
+
+    const r = await parse([noManifest, withManifest]);
+    assert.equal(r.marks.length, 1, `同一部电影不该被劈成两条，实际 ${r.marks.length} 条`);
+    assert.equal(r.marks[0].account.user_id, '82160871',
+      '目录里只有一个账号，缺 manifest 的那份就归它');
+
+    const adopted = r.warnings.find((w) => w.type === 'account_adopted');
+    assert.ok(adopted, '**认领要说出来** —— 归属是一次判断，不是一个事实');
+    assert.deepEqual(adopted.bundles, ['20260730T102904Z-aaaaaa']);
+    assert.equal(adopted.account, '82160871');
+  });
+
+  test('一个已知账号都没有时，大家一起用 unknown —— 那时它是唯一的键空间', async () => {
+    const a = memorySource({
+      bundleId: 'aaaaaa', observedAt: '2026-07-30T10:29:00+08:00', account: null, html: page(),
+    });
+    const b = memorySource({
+      bundleId: 'bbbbbb', observedAt: '2026-07-31T05:13:00+08:00', account: null, html: page(),
+    });
+    const r = await parse([a, b]);
+    assert.equal(r.marks.length, 1);
+    assert.equal(r.marks[0].account.user_id, 'unknown');
+    assert.equal(r.warnings.some((w) => w.type === 'account_adopted'), false,
+      '没有账号可认领，就不该报「认领了」');
+  });
+
+  test('**认领不用来筛广播** —— 那是授权，不是归并', async () => {
+    // 拿认领来的账号去比对每条广播的 data-uid，认错了就会把转发进来的第三方
+    // 内容写进档案主人的 canonical。严格授予、宽松否定：认领用来归并可以，
+    // 用来筛别人的内容不行。
+    const withManifest = memorySource({
+      bundleId: 'bbbbbb', observedAt: '2026-07-31T05:13:00+08:00', html: page(),
+    });
+    const noManifest = memorySource({
+      bundleId: 'aaaaaa', observedAt: '2026-07-30T10:29:00+08:00', account: null,
+      intent: 'broadcast.timeline', routeKey: 'broadcast.timeline', html: '<html></html>',
+    });
+    const r = await parse([noManifest, withManifest]);
+    assert.ok(r.warnings.some((w) => w.type === 'no_owner'),
+      '缺 manifest 的档案里的广播仍然不抽');
   });
 });
