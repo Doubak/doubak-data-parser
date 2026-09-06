@@ -205,6 +205,87 @@ describe('动作取整句', () => {
   });
 });
 
+/**
+ * 动作句里的链接。
+ *
+ * 只留文字的话，`收藏游戏到豆列 游戏购买小账本` 在站点上是一句点不动的话——
+ * 而它在豆瓣上三个词都能点。`action` 照旧是给人看的整句（`ACTION_STATUS` 也按它
+ * 精确查表），`actionParts` 是同一句话的结构化分段。
+ *
+ * 与 `bundle/1.4` 给缺口配 `detail` + `url` 是同一个形状，理由也一样：拿整句去做
+ * 子串匹配把链接对回去，靠的是两边实体解码分毫不差，而**对不上时是静默的**。
+ */
+describe('动作句里的链接', () => {
+  const say = (inner, { quote = null } = {}) =>
+    '<div class="new-status status-wrapper" data-sid="1" data-uid="82160871">'
+    + `<div class="text"><a class="lnk-people">MewX</a>\n      ${inner}\n    `
+    + (quote === null ? '</div>' : `<blockquote><p>${quote}</p></blockquote></div>`)
+    + '<span class="created_at" title="2026-01-01 00:00:00">x</span></div>';
+  const one = (html) => extractBroadcasts(html, OWNER).broadcasts[0];
+
+  test('**拼起来必须逐字等于 action** —— 这条不成立，这个字段就只是又一次子串匹配', () => {
+    for (const inner of [
+      '收藏游戏到豆列 \n      <a href="https://www.douban.com/doulist/45473911/">游戏购买小账本</a>',
+      '上传了17张照片到 <a href="https://www.douban.com/game/30246116/">寂静之人 THE QUIET MAN</a>'
+        + ' 的 <a href="https://www.douban.com/game/30246116/photos/">相册</a>',
+      '写了《<a href="https://movie.douban.com/subject/1291561/">千と千尋の神隠し</a>》的讨论：',
+      '想看',
+    ]) {
+      const b = one(say(inner, { quote: '正文' }));
+      const rebuilt = (b.actionParts ?? [{ text: b.action }]).map((x) => x.text).join('');
+      assert.equal(rebuilt, b.action, `拼不回去：${JSON.stringify(inner)}`);
+    }
+  });
+
+  test('豆列：名字和它的地址都留住', () => {
+    const b = one(say('收藏游戏到豆列 \n      '
+      + '<a href="https://www.douban.com/doulist/45473911/">游戏购买小账本</a>', { quote: 'q' }));
+    assert.equal(b.action, '收藏游戏到豆列 游戏购买小账本');
+    assert.deepEqual(b.actionParts, [
+      { text: '收藏游戏到豆列 ' },
+      { text: '游戏购买小账本', url: 'https://www.douban.com/doulist/45473911/' },
+    ]);
+  });
+
+  test('一句话里两个链接（作品 + 相册），次序不能乱', () => {
+    const b = one(say('上传了17张照片到 <a href="https://www.douban.com/game/30246116/">寂静之人</a>'
+      + ' 的 <a href="https://www.douban.com/game/30246116/photos/">相册</a>'));
+    assert.deepEqual(b.actionParts.map((x) => x.url ?? null), [
+      null, 'https://www.douban.com/game/30246116/', null, 'https://www.douban.com/game/30246116/photos/',
+    ]);
+    assert.deepEqual(b.actionParts.map((x) => x.text), ['上传了17张照片到 ', '寂静之人', ' 的 ', '相册']);
+  });
+
+  test('**没有链接就是 null，不是只有一段的数组**', () => {
+    // 3423 条广播里带链接的只有 90 条。其余都给一份单段数组，等于把同一句话
+    // 在每条记录里存两遍，而第二遍一个字都不多。
+    assert.equal(one(say('想看', { quote: '正文' })).actionParts, null);
+  });
+
+  test('href 里的实体要解码', () => {
+    // 真实页面上有 `?icn=status_board&amp;cate=`。不解码的话链接是坏的，
+    // 而坏在查询串上——点得开、少个参数，不会报错。
+    const b = one(say('向 <a href="https://www.douban.com/board/1000407/?icn=status_board&amp;cate=">'
+      + '某个榜单</a> 分享'));
+    assert.equal(b.actionParts.find((x) => x.url).url,
+      'https://www.douban.com/board/1000407/?icn=status_board&cate=');
+  });
+
+  test('**跨段的空白也要折叠** —— 不然拼不回整句', () => {
+    // `到豆列 ` 后面接 ` 名字` 会拼出两个空格，而整句折叠只有一个。
+    const b = one(say('收藏到豆列 \n   <a href="/x"> 名字</a>', { quote: 'q' }));
+    assert.equal(b.action, '收藏到豆列 名字');
+    assert.equal(b.actionParts.map((x) => x.text).join(''), b.action);
+  });
+
+  test('结尾的冒号去掉之后，最后一段也要跟着去', () => {
+    const b = one(say('写了《<a href="/x">千と千尋</a>》的讨论：', { quote: 'q' }));
+    assert.equal(b.action, '写了《千と千尋》的讨论');
+    assert.equal(b.actionParts.at(-1).text, '》的讨论');
+    assert.equal(b.actionParts.map((x) => x.text).join(''), b.action);
+  });
+});
+
 describe('豆瓣把长广播截断了', () => {
   const wrap = (inner) => `<div class="new-status status-wrapper" data-uid="1" data-sid="9">`
     + `<span class="created_at" title="2025-04-14 18:47:50"></span>`
@@ -315,8 +396,14 @@ describe('对着真实档案', () => {
     // 被去掉了——而 59 里有 49 对差异**只差冒号宽窄**（老页面 `说:`，新页面 `说：`）。
     // 那 49 对不是豆瓣改了措辞，是同一个动作的两种排版，收掉之后这个上界才重新
     // 有意义：留在 59 等于给 46 次真的抽取器退化预先放行。
+    //
+    // **2026-09-06：加了 action_parts，上界 15，比 action 的 13 多 2。**
+    // 多出来的是 href 变了而文字没变的那几条，实测三种，没有一种是我们的抽取器抖：
+    // 豆瓣把小组渲染成 `group/networks/` 或 `group/145884/`（同一个组的两种写法），
+    // 以及一条广播指向的 subject id 真的换了。**那是豆瓣自己改的，与 target_title
+    // 那 380 条同类**，所以进上界而不是进 FROZEN。
     const CHURN = {
-      target_title: 380, action: 13, images: 27, target_type: 4, target_id: 4, text: 9,
+      target_title: 380, action: 13, action_parts: 15, images: 27, target_type: 4, target_id: 4, text: 9,
     };
     const seen = {};
     for (const b of broadcasts) {
