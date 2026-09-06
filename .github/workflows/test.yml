@@ -8,7 +8,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # 两个仓库并排检出——这就是本地的默认开发布局，也是不需要 submodule
+      # 三个仓库并排检出——这就是本地的默认开发布局，也是不需要 submodule
       # 的原因。一致性测试按 ../doubak-data-specs 定位规范仓库。
       - uses: actions/checkout@v4
         with:
@@ -18,6 +18,19 @@ jobs:
         with:
           repository: Doubak/doubak-data-specs
           path: doubak-data-specs
+
+      # **扩展里有这个仓库那几个抽取器的逐字节拷贝**（`doubak-extension/src/vendor/`），
+      # 而「是不是同一份」只有两边都在的时候才验得了。
+      # `test/vendor-freshness.test.js` 缺了它会静默跳过，跳过在 CI 里等于没测,
+      # 所以那条测试在 CI 里把「缺仓库」直接判失败。
+      #
+      # 扩展按它的**默认分支**检出，所以一次跨仓库的改动会红一会儿：先推这边，
+      # 这里红（扩展还没同步）；再在扩展里跑一遍 sync-vendor 推上去，两边都绿。
+      # 那段红是对的——那段时间里两个宿主对同一份档案确实会给出不同结果。
+      - uses: actions/checkout@v4
+        with:
+          repository: Doubak/doubak-extension
+          path: doubak-extension
 
       - uses: actions/setup-node@v4
         with:
@@ -86,6 +99,8 @@ jobs:
           n=$(ls ../doubak-data-specs/canonical/tests/cases | wc -l)
           echo "一致性用例 $n 组"
           test "$n" -ge 10 || { echo '::error::用例数不对，像是没检出全'; exit 1; }
+          test -f ../doubak-extension/tools/sync-vendor.mjs || {
+            echo '::error::扩展仓库缺失，vendor 新鲜度检查会静默跳过'; exit 1; }
 
       # 解析器的一部分测试要对着真实档案跑，而真实档案是私人数据，不会进 CI。
       # 它们会跳过——**跳过多少要说出来**，否则「全绿」会掩盖「一大半没跑」。

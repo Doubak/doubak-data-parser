@@ -17,6 +17,26 @@ import { fieldDigest, digestAll, sameRevision } from '../src/digest.js';
 import { extractMarks } from '../src/extract.js';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
+import { ARCHIVE_20260806 } from './real-archive.js';
+
+/** 真实档案的根。两个 describe 都要用，所以定在模块作用域。 */
+const REAL = ARCHIVE_20260806;
+/**
+ * 整份真实档案只解析一次，之后各条测试共用。
+ *
+ * **这不是省时间，是「测试跑不跑得起来」的问题。** 这些测试原来指着
+ * `~/downloads/20260806`，档案归拢进 `exports/` 之后那条路径指空，于是它们
+ * 从「跳过」变成**永远跳过**——一秒跑完，全绿，什么都没查。
+ *
+ * 路径修好之后它们真的跑了起来，而这个文件里有十几处各自 `parse(openAll(REAL))`：
+ * 26 份档案一次约 25 秒，一整趟五分多钟。**一套要跑五分钟的测试，与一套永远
+ * 跳过的测试，在「有没有人跑它」这件事上是同一个结果。**
+ *
+ * 共用一份产出是安全的：`parse()` 是纯函数，而这些测试全都只读。**唯独
+ * 「换个次序喂进去结果一样」那条不能共用**——它要的正是第二次解析。
+ */
+let _real;
+const realParse = () => (_real ??= parse(openAll(REAL)));
 
 /**
  * 哪几份是**重建出来的**档案。
@@ -259,11 +279,13 @@ describe('说不通的完整性声明不算数', () => {
 });
 
 describe('对着真实档案端到端', () => {
-  const DL = '/home/mewx/downloads/20260806';
+  const DL = REAL;
+
+
 
   test('成链档案 → 数字与实测吻合', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { marks, subjects, warnings } = await parse(openAll(DL));
+    const { marks, subjects, warnings } = await realParse();
 
     // **判据是「只增不减 + 不重复」，不是一个准确的总数。**
     //
@@ -446,7 +468,7 @@ describe('对着真实档案端到端', () => {
     //
     // 修之后剩 1 处，而那一处是对的：原文是 `HITMAN&amp;amp;trade;`，解一次得到
     // 字面的 `&amp;trade;`——用户当年粘的就是一段已经转义过的标题。解第二次才是错的。
-    const { marks, subjects, broadcasts, longform } = await parse(openAll(DL));
+    const { marks, subjects, broadcasts, longform } = await realParse();
     const texts = [];
     for (const rec of [...marks, ...subjects, ...broadcasts, ...longform]) {
       for (const rev of rec.revisions) {
@@ -470,7 +492,7 @@ describe('对着真实档案端到端', () => {
     //
     // 写成集合相等而不是数量相等：数量对得上、内容错位的情况是存在的
     // （第一版按主机名收窄，漏掉 qnmob3 的 2 张、又多算了别的 2 张就会刚好抵消）。
-    const { broadcasts } = await parse(openAll(DL));
+    const { broadcasts } = await realParse();
     const referenced = new Set(
       broadcasts.flatMap((b) => b.revisions.flatMap((r) => r.fields.images ?? [])),
     );
@@ -548,7 +570,7 @@ describe('对着真实档案端到端', () => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 这一条是这次修复的要点：截断不是「档案缺了数据」，是「档案缺了一个指针」。
     // 实测那两条的 full_text_url 都指向一篇日记，而两篇日记的全文早就抓下来了。
-    const { broadcasts, longform } = await parse(openAll(DL));
+    const { broadcasts, longform } = await realParse();
     const cut = broadcasts.filter((b) => b.revisions.at(-1).fields.text_truncated);
     assert.ok(cut.length > 0, '真实档案里本该有被截断的广播，不然这条测试是空的');
 
@@ -570,7 +592,7 @@ describe('对着真实档案端到端', () => {
   test('**又名要从作品详情页读出来**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 详情页此前一张都没被解析过——aliases 字段早在 schema 里，值却硬编码成 null。
-    const { subjects } = await parse(openAll(DL));
+    const { subjects } = await realParse();
     const withAlias = subjects.filter((s) => (s.revisions.at(-1).fields.aliases ?? []).length);
     assert.ok(withAlias.length > 1500, `只有 ${withAlias.length} 个有又名，抽查显示电影 94% 都有`);
 
@@ -583,7 +605,7 @@ describe('对着真实档案端到端', () => {
 
   test('**#info 整块收进来，键是豆瓣自己的标签**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { subjects } = await parse(openAll(DL));
+    const { subjects } = await realParse();
     const withInfo = subjects.filter((s) => s.revisions.at(-1).fields.info);
 
     // 游戏与舞台剧的页面上根本没有 #info——**别在没有的地方硬造出来**。
@@ -602,7 +624,7 @@ describe('对着真实档案端到端', () => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // span.pl 在页面别处还用来标评论区的用户名。越界的话，几十个陌生人的 id
     // 会变成字段名，存进档案主人的 canonical。
-    const { subjects } = await parse(openAll(DL));
+    const { subjects } = await realParse();
     const keys = new Set();
     for (const s of subjects) for (const k of Object.keys(s.revisions.at(-1).fields.info ?? {})) keys.add(k);
     const looksLikeUser = [...keys].filter((k) => /^\(.*\)$/.test(k));
@@ -612,7 +634,7 @@ describe('对着真实档案端到端', () => {
   test('**值按 ` / ` 切，`(港/台)` 不许被切开**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 实测裸斜杠切法把 `犯罪101(港/台)` 切成了两半，4022 张页面上切坏 176 条。
-    const { subjects } = await parse(openAll(DL));
+    const { subjects } = await realParse();
     const broken = [];
     for (const s of subjects) {
       for (const vs of Object.values(s.revisions.at(-1).fields.info ?? {})) {
@@ -630,7 +652,7 @@ describe('对着真实档案端到端', () => {
   test('**又名的顺序不许动，也不去重**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 顺序是豆瓣给的，而「哪个排第一」本身就是信息（通常是最通行的那个译名）。
-    const { subjects } = await parse(openAll(DL));
+    const { subjects } = await realParse();
     const s = subjects.find((x) => x.id === '35267208' || (x.revisions.at(-1).fields.aliases ?? []).length > 2);
     assert.ok(s, '找不到一个有多个又名的作品');
     const a = s.revisions.at(-1).fields.aliases;
@@ -654,8 +676,8 @@ describe('对着真实档案端到端', () => {
 
   test('顺序无关', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const a = (await parse(openAll(DL))).marks.length;
-    const b = (await parse(openAll(DL).reverse())).marks.length;
+    const a = (await realParse()).marks.length;
+    const b = (await parse(openAll(REAL).reverse())).marks.length;
     assert.equal(a, b);
   });
 });
@@ -701,10 +723,81 @@ describe('哪些判不出来是「改一行就能救回来」的', () => {
     assert.equal(isRecalibratable({ verdict: 'blocked', note: '判不出来：响应体为空' }), false);
   });
 
-  test('按路线分组统计 —— 一次改动通常只修好一条路线', async (t) => {
-    if (!existsSync('/home/mewx/downloads/20260806')) return t.skip('真实档案不在这台机器上');
-    const { stats } = await parse(openAll('/home/mewx/downloads/20260806'));
-    // 实测：那两条 /topic/ 日记的旧写法，改好框架标志之后离线重跑就能救回来。
-    assert.ok(stats.recalibratable['note.item'] >= 2, JSON.stringify(stats.recalibratable));
+  /** 最小的注入源：`parse()` 认的就是这八个成员（见 portable.test.js）。 */
+  const fakeSource = (rows) => ({
+    status: 'complete',
+    manifest: null,
+    bundleId: 'aaaaaa',
+    index: rows,
+    crawlState: new Map(),
+    coverage: new Map(),
+    payload: async () => '<html></html>',
+    close: () => {},
+  });
+
+  /** 一条判不出来、原因是框架标志没中的捕获。 */
+  const refused = (url, routeKey = 'note.item') => ({
+    capture_id: `aaaaaa#${url.length}`,
+    route_key: routeKey,
+    intent: routeKey,
+    url,
+    verdict: 'unknown',
+    verdict_reason: 'frame_anchors_missing',
+    surface: 'html',
+  });
+
+  test('按路线分组统计 —— 一次改动通常只修好一条路线', async () => {
+    const { stats } = await parse([fakeSource([
+      refused('https://www.douban.com/topic/1/'),
+      refused('https://www.douban.com/topic/2/'),
+      refused('https://www.douban.com/review/3/', 'review.item'),
+    ])]);
+    assert.deepEqual(stats.recalibratable, { 'note.item': 2, 'review.item': 1 });
+    assert.equal(stats.recalibratableCovered, 0, '一条都没有别的成功捕获顶上');
+  });
+
+  test('**同一个网址另有成功捕获的，不算「可离线救回」**', async () => {
+    // 判据与 bundle/1.4 的 resolveGap 是同一条：一句关于某一个网址的断言，
+    // 被同一个网址的一次成功捕获证伪。只认完全相同的网址。
+    const ok = {
+      capture_id: 'aaaaaa#999',
+      route_key: 'note.item',
+      intent: 'note.item',
+      url: 'https://www.douban.com/topic/1/',
+      verdict: 'ok',
+      surface: 'html',
+    };
+    const { stats } = await parse([fakeSource([
+      refused('https://www.douban.com/topic/1/'),
+      refused('https://www.douban.com/topic/2/'),
+      ok,
+    ])]);
+    assert.deepEqual(stats.recalibratable, { 'note.item': 1 }, '只剩没被顶上的那一条');
+    assert.equal(stats.recalibratableCovered, 1);
+  });
+
+  test('顺序不影响判定 —— 成功那条排在后面也算数', async () => {
+    // **不能边扫边判。** 实测那两条 /topic/ 就是这个形状：同一次抓取里同一个
+    // 网址抓了三遍，前两遍判不出来、第三遍才成。边扫边判的话，前两遍会被
+    // 当成真的缺内容。
+    const ok = {
+      capture_id: 'aaaaaa#999', route_key: 'note.item', intent: 'note.item',
+      url: 'https://www.douban.com/topic/1/', verdict: 'ok', surface: 'html',
+    };
+    const before = await parse([fakeSource([ok, refused('https://www.douban.com/topic/1/')])]);
+    const after = await parse([fakeSource([refused('https://www.douban.com/topic/1/'), ok])]);
+    assert.deepEqual(before.stats.recalibratable, {});
+    assert.deepEqual(after.stats.recalibratable, {}, '成功那条排在后面也要算数');
+    assert.equal(after.stats.recalibratableCovered, 1);
+  });
+
+  test('对着真实档案：那两条 /topic/ 已经被顶上了', async (t) => {
+    if (!existsSync(ARCHIVE_20260806)) return t.skip('真实档案不在这台机器上');
+    const { stats } = await realParse();
+    // 实测：`…-0fb09c` 里同一篇日记抓了三遍，前两遍判不出来、第三遍成了。
+    // 那篇日记连正文带两张配图都在 canonical 里，所以「可离线救回」是空的
+    // ——而它原来会**永远**挂着两条，档案是冻结的，那两条捕获再也不会变。
+    assert.deepEqual(stats.recalibratable, {}, JSON.stringify(stats.recalibratable));
+    assert.ok(stats.recalibratableCovered >= 2, `只数到 ${stats.recalibratableCovered} 条`);
   });
 });

@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs';
 import { topology, assertSingleAccount } from '../src/topology.js';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
+import { ARCHIVE_20260806 } from './real-archive.js';
 
 /** @param {object} m manifest 片段 */
 const src = (bundleId, m = {}) => ({
@@ -110,7 +111,7 @@ describe('混账号', () => {
 });
 
 describe('对着真实档案', () => {
-  const DL = '/home/mewx/downloads/20260806';
+  const DL = ARCHIVE_20260806;
 
   test('**分叉的目录照样解析，而且结果恰好是并集**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');

@@ -78,7 +78,35 @@ function reportCrowded(sources) {
   }
 }
 
+// **同一份档案被放了两处，也要说出来。**
+//
+// 已经按索引前缀去重了（见 bundle-source.js 的 dedupe），所以产出是对的；
+// 说一声是因为**它解释了「档案 N 份」这个数字为什么跟目录里数出来的不一样**。
+// 不说的话，用户数出 27 个文件夹、这里报 26 份，看起来像漏读了一份——
+// 而「漏读一份」正是这个项目最怕的那种静默失败，不该让正确的行为长得像它。
+function reportDuplicates(sources) {
+  for (const s of sources) {
+    for (const dir of s.duplicateDirs) {
+      console.log(`\n档案 ${s.bundleId} 在两处各有一份，只读了一份：`);
+      console.log(`   读的  ${s.dir}`);
+      console.log(`   略过  ${dir}`);
+      console.log('   索引是同一份（或是它的前缀），所以两份读出来的东西一样。');
+      console.log('   不去重的话，每条记录会多出一次「这个 bundle 又看见了它」的出处。');
+    }
+    // **同编号但索引对不上，是另一回事，两份都读。** 少读一份会静默丢数据，
+    // 而重复的出处只是难看。方向不对称，所以处置也不一样。
+    for (const dir of s.conflictingDirs) {
+      console.log(`\n⚠ 编号 ${s.bundleId} 有两份，而它们的索引对不上：`);
+      console.log(`   ${s.dir}`);
+      console.log(`   ${dir}`);
+      console.log('   两份都读了（并集是安全的），但它们的观测会各记一次。');
+      console.log('   正常情况下不该出现——编号带着时间戳和随机后缀。请核对这两个目录。');
+    }
+  }
+}
+
 reportCrowded(sources);
+reportDuplicates(sources);
 
 const t0 = Date.now();
 
@@ -157,6 +185,21 @@ if (recal.length) {
   const total = recal.reduce((n, [, v]) => n + v, 0);
   console.log(`\n可离线救回 ${total} 条（页面已在档案里，改抽取器重跑即可，不必重抓）：`);
   for (const [route, n] of recal.sort((a, b) => b[1] - a[1])) console.log(`   ${route}  ${n}`);
+}
+
+// **同一个网址另有成功捕获的那些，折成一行。**
+//
+// 实测这份档案里有 2 条：同一次抓取把同一篇日记抓了三遍，前两遍判不出来（当时
+// 抽取器还不认 topic 那套模板），第三遍成了——那篇日记连正文带两张配图都在
+// canonical 里。列进上面那张表的话，它会**永远**在那儿：档案是冻结的，那两条
+// 捕获再也不会变。而这个项目已经数过五次「一个永远有条目的失败列表，是没人看的
+// 失败列表」，两条常驻项就足够让第三条真的挡不住人的眼。
+//
+// 但也不能抹掉：那一页少了一次观测，极端情况下少的是一条修订。所以说，只是别
+// 让它顶着「可离线救回」的名字站在待办清单上。
+if (stats.recalibratableCovered) {
+  console.log(`\n另有 ${stats.recalibratableCovered} 条判不出来的捕获，`
+    + '它们的网址在这份档案里另有成功捕获 —— 内容不缺，重跑最多多出一条修订。');
 }
 
 // 告警必须显眼。静默的抽取器退化正是这套设计从头到尾在防的东西。

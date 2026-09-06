@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import { extractBroadcasts } from '../src/extract-broadcast.js';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
+import { ARCHIVE_20260806 } from './real-archive.js';
 
 const OWNER = '82160871';
 const wrap = (uid, inner) =>
@@ -127,11 +128,20 @@ describe('豆瓣把长广播截断了', () => {
 });
 
 describe('对着真实档案', () => {
-  const DL = '/home/mewx/downloads/20260806';
+  const DL = ARCHIVE_20260806;
+
+  /**
+   * 整份档案只解析一次。**不是省时间，是「跑不跑得起来」**——26 份档案一次约
+   * 25 秒，这个文件里两处各解析一遍就是接近一分钟。共用是安全的：`parse()` 是
+   * 纯函数，下面两条都只读。（这两条测试原来指着一条已经不存在的路径，
+   * 于是**永远跳过**；见 real-archive.js。）
+   */
+  let _real;
+  const realParse = () => (_real ??= parse(openAll(DL)));
 
   test('**广播里用户写的那部分不可编辑**（作品名不算，那是豆瓣的）', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { broadcasts } = await parse(openAll(DL));
+    const { broadcasts } = await realParse();
     // **不钉死条数。** 那个目录会随着新抓取长大——第一版写死 3392，用户多跑了一次
     // 就红了，而什么都没坏。钉死一个会自然变化的数，测的是「档案有没有变」，
     // 不是「解析器对不对」。
@@ -219,7 +229,7 @@ describe('对着真实档案', () => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 这是整个项目要买的东西：不是「我标了什么」，而是「我当时说了什么」。
     // 那条「想看」短评在标记页上已经被「看过」的短评覆盖了。
-    const { broadcasts, marks } = await parse(openAll(DL));
+    const { broadcasts, marks } = await realParse();
     const bc = broadcasts.find((b) => (b.revisions[0].fields.text ?? '').includes('能上6分'));
     assert.ok(bc, '广播里找不到那条被覆盖的短评');
     assert.equal(bc.revisions[0].fields.posted_at.precision, 'second');

@@ -106,6 +106,18 @@ export class BundleSource {
     this.foreignManifest = manifest && manifest.bundle_id && manifest.bundle_id !== this.bundleId
       ? manifest.bundle_id : null;
 
+    /**
+     * 同一个编号的档案还在别的哪些目录里出现过。由 `openAll` 的去重填。
+     *
+     * `duplicateDirs` 是被丢掉的那几份（索引是这一份的前缀，也就是同一份档案的
+     * 拷贝）；`conflictingDirs` 是**同编号但索引对不上**的那几份，它们没有被丢掉，
+     * 列在这里是为了让上层说出来——顶着同一个编号的两个不同东西，是人该知道的事。
+     * @type {string[]}
+     */
+    this.duplicateDirs = [];
+    /** @type {string[]} */
+    this.conflictingDirs = [];
+
     /** @type {Map<string, Buffer>} 段文件缓存。一个段被反复定位，读一次就够了。 */
     this._segments = new Map();
   }
@@ -244,7 +256,90 @@ export function openAll(root) {
   };
 
   walk(root);
-  return out.sort((a, b) => (a.bundleId < b.bundleId ? -1 : 1));
+  return dedupe(out).sort((a, b) => (a.bundleId < b.bundleId ? -1 : 1));
+}
+
+/**
+ * 同一份档案被放在两个目录里时，只读一遍。
+ *
+ * ## 这不是假想
+ *
+ * 实测 `~/downloads/exports/`：`doubak-bundle-20260801T005010Z-3eef52` 在顶层
+ * 和 `20260806/` 下各有一份，**逐字节相同**。`seen` 是按目录 realpath 去重的
+ * （它挡的是软链接和重复进入），两个真实存在的不同目录当然都过得去，于是
+ * `openAll` 返回 27 个源、26 个编号。
+ *
+ * ## 症状：记录全对，出处全假
+ *
+ * 合并是并集，所以**产出的记录一条不多一条不少**——2964 条标记、3423 条广播、
+ * 修订数分毫不差。错的是出处：
+ *
+ * ```
+ *                 含重复     去掉后
+ * 起点             7（3eef52 列了两次）  6
+ * 档案             27 份      26 份
+ * 观测             47646      41327
+ * 同一个 bundle 在一条修订里记了两次   标记 2933 · 作品 2933 · 广播 3188
+ * ```
+ *
+ * `capture_ids` 是这份档案「指回 WARC」的那根线，也是 canonical 唯一的凭据。
+ * 多出来的那条 observation 说的是「这个 bundle 又看见了它一次」——而它只看见过
+ * 一次，多出来的那次是一个文件同时躺在两个文件夹里造出来的。**没有任何一处会
+ * 报错**，因为记录数是对的；只有去数出处才看得见。
+ *
+ * ## 为什么是去重，而不是拒绝这个目录
+ *
+ * 与「递归进子目录」「一个目录十份档案」是同一条理由：要求人先手工摊平，换来的
+ * 只会是漏掉一份。而复制一个文件夹恰恰是人会做的事——解压两遍、整理前先备份、
+ * 把两次导出堆在一起。**递归让这件事更容易发生，不是更少。**
+ *
+ * ## 判据：索引是不是前缀
+ *
+ * 索引在抓取过程中是**只追加**的，导出只是把文件拷走。所以「早一次导出」的索引
+ * 一定是「晚一次导出」的**前缀**——逐字节相同是它的特例。于是：
+ *
+ * - 是前缀 → 同一份档案的一份（可能更旧的）拷贝，丢掉，记在 `duplicateDirs` 上；
+ * - 不是前缀 → 两个不同的东西顶着同一个编号，**都留着**（并集仍然是安全的），
+ *   记在 `conflictingDirs` 上让上层说出来。丢掉其中一个才是不安全的方向——
+ *   那会静默丢数据，而这里的全部代价只是重复的出处又回来了。
+ *
+ * 留哪一份：行多的优先（前缀关系里它是超集），再看谁配得上 manifest（完整性
+ * 证据在那儿），最后按目录名——**排序必须是全序**，否则同一个目录解析两次会
+ * 得到不同的 `capture_ids`，而那正是这个函数在修的毛病。
+ *
+ * @param {BundleSource[]} sources
+ * @returns {BundleSource[]}
+ */
+export function dedupe(sources) {
+  /** @type {Map<string, BundleSource[]>} */
+  const byId = new Map();
+  for (const s of sources) {
+    if (!byId.has(s.bundleId)) byId.set(s.bundleId, []);
+    byId.get(s.bundleId).push(s);
+  }
+
+  const kept = [];
+  for (const group of byId.values()) {
+    if (group.length === 1) { kept.push(group[0]); continue; }
+
+    const ranked = [...group].sort((a, b) => (
+      b.index.length - a.index.length
+      || (b.manifest ? 1 : 0) - (a.manifest ? 1 : 0)
+      || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0)
+    ));
+    const [primary, ...rest] = ranked;
+    for (const s of rest) {
+      if (primary.indexText.startsWith(s.indexText)) {
+        primary.duplicateDirs.push(s.dir);
+        s.close();
+      } else {
+        primary.conflictingDirs.push(s.dir);
+        kept.push(s);
+      }
+    }
+    kept.push(primary);
+  }
+  return kept;
 }
 
 /**

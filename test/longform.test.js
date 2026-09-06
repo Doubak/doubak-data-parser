@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { extractLongform } from '../src/extract-longform.js';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
+import { ARCHIVE_20260806, readCapture } from './real-archive.js';
 
 const notePage = (id, body, footer = `1740人浏览`) => `<html><body>
   <div id="note-${id}" class="note-container" data-url="https://www.douban.com/note/${id}/" data-author="MewX">
@@ -157,11 +158,28 @@ describe('评论', () => {
 });
 
 describe('对着真实档案', () => {
-  const DL = '/home/mewx/downloads/20260806';
+  const DL = ARCHIVE_20260806;
+
+/**
+ * 整份真实档案只解析一次，之后各条测试共用。
+ *
+ * **这不是省时间，是「测试跑不跑得起来」的问题。** 这些测试原来指着
+ * `~/downloads/20260806`，档案归拢进 `exports/` 之后那条路径指空，于是它们
+ * 从「跳过」变成**永远跳过**——一秒跑完，全绿，什么都没查。
+ *
+ * 路径修好之后它们真的跑了起来，而这个文件里有十几处各自 `parse(openAll(DL))`：
+ * 26 份档案一次约 25 秒，一整趟五分多钟。**一套要跑五分钟的测试，与一套永远
+ * 跳过的测试，在「有没有人跑它」这件事上是同一个结果。**
+ *
+ * 共用一份产出是安全的：`parse()` 是纯函数，而这些测试全都只读。**唯独
+ * 「换个次序喂进去结果一样」那条不能共用**——它要的正是第二次解析。
+ */
+let _real;
+const realParse = () => (_real ??= parse(openAll(DL)));
 
   test('**4 篇长文，每篇都只有 1 条修订** —— 抽取器是稳的', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { longform } = await parse(openAll(DL));
+    const { longform } = await realParse();
     // 同样不钉死篇数——它会随着新写的日记长大。要守的是「每篇只有一条修订」。
     assert.ok(longform.length >= 4, `只有 ${longform.length} 篇`);
     // **「只有一条修订」这句话不能是空的。** 刚发的日记只被抓过一次，对它而言那句话
@@ -180,7 +198,7 @@ describe('对着真实档案', () => {
 
   test('那篇讲被删电影的日记，全文在档案里', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
-    const { longform } = await parse(openAll(DL));
+    const { longform } = await realParse();
     const note = longform.find((r) => r.upstream_id === '868128497');
     assert.equal(note.revisions[0].fields.title, '想看的被河蟹的电影');
     assert.match(note.revisions[0].fields.body, /An Unfinished Film/);
@@ -193,7 +211,18 @@ describe('/topic/ 那种日记', () => {
    * 得到哪一种。写第一版时手上只有两篇、恰好都是旧那种，于是从 n=2 推出了一个
    * 封闭集合。抓取那边犯过同样的错。
    */
-  const PAGE = '/home/mewx/downloads/496284296.html';
+  /**
+   * 真实那一页**从档案里读**，不从 `~/downloads/` 下手工另存的散页读。
+   *
+   * 原来指的是 `~/downloads/496284296.html`，那个文件早没了，于是下面那条
+   * 「对着真实页面」的测试**永远跳过**——而 npm test 照样全绿。档案是冻结的，
+   * 这一页在里面跑不掉；顺带还证明了「它确实在档案里」。
+   *
+   * 这一份捕获是同一个网址在同一次抓取里的**第三次**：前两次判不出来（当时的
+   * 抽取器还不认 topic 这套模板），第三次成了。见 parse.js 里
+   * `recalibratableCovered` 那段。
+   */
+  const CAPTURE = ['doubak-bundle-20260807T083529Z-0fb09c', '20260807T083529Z-0fb09c#001564'];
   const topic = (body, views = 4) => `<html><body>
     <link rel="canonical" href="https://www.douban.com/topic/496284296/">
     <h1 class="topic-title">测试一下带图的日记</h1>
@@ -239,9 +268,9 @@ describe('/topic/ 那种日记', () => {
   });
 
   test('对着真实页面：全文、无计数', async (t) => {
-    const { existsSync, readFileSync } = await import('node:fs');
-    if (!existsSync(PAGE)) return t.skip('样本不在这台机器上');
-    const r = extractLongform(readFileSync(PAGE, 'utf-8'), 'note');
+    const page = await readCapture(...CAPTURE);
+    if (!page) return t.skip('真实档案不在这台机器上');
+    const r = extractLongform(page, 'note');
     assert.equal(r.id, '496284296');
     assert.equal(r.title, '测试一下带图的日记');
     assert.equal(r.publishedAt, '2026-08-07 16:25:36');
