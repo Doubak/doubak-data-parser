@@ -18,15 +18,30 @@ import { parse } from '../src/parse.js';
 import { ARCHIVE_20260806 } from './real-archive.js';
 
 const OWNER = '82160871';
-const wrap = (uid, inner) =>
-  `<div class="new-status status-wrapper" data-sid="900${uid}" data-uid="${uid}">${inner}</div>`;
+/**
+ * 一条广播的容器。
+ *
+ * **`inner` 前面那个 `<div class="text">` 不是装饰。** 真实页面上，人名与动作句
+ * 装在 `.text` 里，时间戳、卡片、附图都在它外面——动作句的右边界正是这个 `</div>`
+ * （或者更早出现的 `<blockquote>`）。实测 21754 条广播里，时间戳落进动作句范围内的
+ * **0 条**。
+ *
+ * 第一版夹具没有这一层，于是「动作句」一路吃到时间戳，把 `x` 也算了进去。
+ * 那不是抽取器的毛病，是**夹具不长得像豆瓣**——而夹具一旦比真实页面宽松，
+ * 它就只能证明代码在一种现实中不存在的输入上的行为。
+ */
+const wrap = (uid, inner, { text = true } = {}) =>
+  `<div class="new-status status-wrapper" data-sid="900${uid}" data-uid="${uid}">`
+  + (text ? `<div class="text">${inner}</div>` : inner)
+  + '</div>';
 
 describe('抽取', () => {
   test('身份走 data-sid，时间到秒', () => {
-    const html = wrap(OWNER, `<a class="lnk-people">MewX</a> 想看
-      <span class="created_at" title="2026-07-18 12:44:56">x</span>
-      <blockquote><p>能上6分我觉得都是国产好片</p></blockquote>
-      <div data-target-type="movie" data-object-id="36838707"></div>`);
+    const html = wrap(OWNER, '<a class="lnk-people">MewX</a> 想看')
+      .replace('</div></div>', '</div>'
+        + '<span class="created_at" title="2026-07-18 12:44:56">x</span>'
+        + '<blockquote><p>能上6分我觉得都是国产好片</p></blockquote>'
+        + '<div data-target-type="movie" data-object-id="36838707"></div></div>');
     const { broadcasts } = extractBroadcasts(html, OWNER);
     assert.equal(broadcasts.length, 1);
     const b = broadcasts[0];
@@ -77,8 +92,9 @@ describe('抽取', () => {
 
   test('**动作映射不到三种状态时保持 null，不硬塞**', () => {
     // 「收藏图书到豆列」不是一个标记状态。塞进 wish/done/doing 任何一格都是编造。
-    const html = wrap(OWNER, `<a class="lnk-people">MewX</a> 收藏图书到豆列
-      <span class="created_at" title="2026-01-01 00:00:00">x</span>`);
+    const html = wrap(OWNER, '<a class="lnk-people">MewX</a> 收藏图书到豆列')
+      .replace('</div></div>', '</div>'
+        + '<span class="created_at" title="2026-01-01 00:00:00">x</span></div>');
     const b = extractBroadcasts(html, OWNER).broadcasts[0];
     assert.equal(b.status, null);
     assert.equal(b.action, '收藏图书到豆列', '动作原文要留着');
@@ -94,6 +110,98 @@ describe('抽取', () => {
     const html = '<div class="new-status status-wrapper" data-uid="82160871">'
       + '<span class="created_at" title="2026-01-01 00:00:00">x</span></div>';
     assert.equal(extractBroadcasts(html, OWNER).idless, 1);
+  });
+});
+
+/**
+ * 动作句 —— 整句，不是前七个字。
+ *
+ * 旧写法从人名之后取最多七个非 `<` 的字符。七看起来是「最长的动作词」
+ * （`收藏图书到豆列` 正好七个），实际是**「在第一个行内链接前面刹住」**，
+ * 而链接里装的正是这句话的宾语。下面每条夹具的结构都照真实页面写。
+ */
+describe('动作取整句', () => {
+  /** 照真实页面：动作句在 `.text` 里，正文在 `<blockquote>` 里，其余都在外面。 */
+  const say = (inner, { quote = null } = {}) =>
+    '<div class="new-status status-wrapper" data-sid="1" data-uid="82160871">'
+    + `<div class="text"><a class="lnk-people">MewX</a>\n      ${inner}\n    `
+    + (quote === null ? '</div>' : `<blockquote><p>${quote}</p></blockquote></div>`)
+    + '<span class="created_at" title="2026-01-01 00:00:00">x</span></div>';
+
+  const actionOf = (html) => extractBroadcasts(html, OWNER).broadcasts[0].action;
+
+  test('**12 个标记动作词一个都不许变形** —— 变了就丢一条标记事件', () => {
+    // 这是这次改动唯一危险的方向：动作词一旦不是原样，ACTION_STATUS 查不到，
+    // status 变成 null，而「这条广播没有状态」与「这条广播不是标记」在数据上
+    // 分不出来。实测真实档案 3265 条有状态的广播：保住 3265、丢 0。
+    for (const [word, status] of Object.entries({
+      想看: 'wish', 想读: 'wish', 想听: 'wish', 想玩: 'wish',
+      看过: 'done', 读过: 'done', 听过: 'done', 玩过: 'done',
+      在看: 'doing', 在读: 'doing', 在听: 'doing', 在玩: 'doing',
+    })) {
+      const b = extractBroadcasts(say(word, { quote: '正文' }), OWNER).broadcasts[0];
+      assert.equal(b.action, word, `${word} 被改动过了`);
+      assert.equal(b.status, status, `${word} 映射不到 ${status}`);
+    }
+  });
+
+  test('**行内链接里的宾语要收进来** —— 收藏到哪个豆列，原来一直是空的', () => {
+    // 实测 61 条广播因为那个七字上限丢掉了豆列名。
+    const html = say('收藏游戏到豆列 \n      <a href="https://www.douban.com/doulist/45473911/">游戏购买小账本</a>',
+      { quote: '正文' });
+    assert.equal(actionOf(html), '收藏游戏到豆列 游戏购买小账本');
+  });
+
+  test('传照片到相册：整句读得出来，而且不跟作品名粘在一起', () => {
+    const html = say('上传了17张照片到 <a href="https://www.douban.com/game/30246116/">寂静之人 THE QUIET MAN</a>'
+      + ' 的 <a href="https://www.douban.com/game/30246116/photos/">相册</a>');
+    assert.equal(actionOf(html), '上传了17张照片到 寂静之人 THE QUIET MAN 的 相册');
+  });
+
+  test('**标签直接删掉 —— 判据是「浏览器会显示成什么」**', () => {
+    // 第一版是「换成空格」，怕把两个词粘起来。**那个担心是编的**：浏览器渲染行内
+    // HTML 就是「去标签 + 折叠空白」，该有空格的地方豆瓣源码里本来就有。换成空格
+    // 反而造出页面上没有的空格——实测 4 条广播的书名号里凭空多了两个。
+    // 这个毛病是看生成出来的站点看出来的，不是想出来的。
+    assert.equal(actionOf(say('写了《<a href="/x">千と千尋の神隠し</a>》的讨论：', { quote: 'q' })),
+      '写了《千と千尋の神隠し》的讨论', '书名号里不许多出空格');
+    // 而豆瓣自己带了空格的地方，空格还在：
+    assert.equal(actionOf(say('收藏游戏到豆列 \n      <a href="/x">游戏购买小账本</a>', { quote: 'q' })),
+      '收藏游戏到豆列 游戏购买小账本');
+  });
+
+  test('实体要解码 —— 不解的话它会被原样印在页面上', () => {
+    // 站点生成器会把 `&` 转义成 `&amp;`，所以这里没解开的实体最后会**显示出来**。
+    // sample.doubak.com 上那个可见的 `&#34;` 就是这么来的。
+    assert.equal(actionOf(say('写了关于 <a href="/x">Tom Clancy&#39;s Ghost Recon</a> 的文字', { quote: 'q' })),
+      '写了关于 Tom Clancy\u2019s Ghost Recon 的文字'.replace('\u2019', "'"));
+  });
+
+  test('**结尾的冒号去掉，两种宽度都去**', () => {
+    // 它是动作与引文之间的分隔符，而豆瓣半角全角都写：CLAUDE.md 记着 action 那
+    // 59 对相邻修订差异里有 49 对只差冒号宽窄（老页面 `说:`，新页面 `说：`）。
+    assert.equal(actionOf(say('说:', { quote: '正文' })), '说');
+    assert.equal(actionOf(say('说：', { quote: '正文' })), '说');
+    assert.equal(actionOf(say('喜欢\n      \n:', { quote: '正文' })), '喜欢');
+  });
+
+  test('**开头的冒号不去** —— 那一条豆瓣本来就没写动作词', () => {
+    // 实测 1 条：页面上原样显示 `MewX : 《斯诺登…》预告片`。照抄比替它编一个动词
+    // 诚实，而 n=1 也不够推出任何规则。
+    assert.equal(actionOf(say(': <a href="/x">《斯诺登 Snowden (2016)》预告片</a>', { quote: 'q' })),
+      ': 《斯诺登 Snowden (2016)》预告片');
+  });
+
+  test('豆瓣压根没写动作词时是 null，不是空串', () => {
+    // 日记广播就是这样：`<span type="note"></span>` 之后直接是卡片。
+    // 空串会让下游分不清「没有动作」和「有一个空动作」。
+    assert.equal(actionOf(say('<span type="note"></span>')), null);
+  });
+
+  test('**右边界是结构，不是长度** —— 时间戳不许被吃进动作句', () => {
+    // 实测 21754 条真实广播里，时间戳落进动作句范围的有 0 条。
+    // 这条守的是「万一有」：切到 `.text` 的 `</div>` 就停。
+    assert.equal(actionOf(say('想看')), '想看');
   });
 });
 
@@ -202,8 +310,13 @@ describe('对着真实档案', () => {
     // 直接删掉它们，等于把「豆瓣渲染变了」与「抽取器坏了」一起放行——而后者
     // 恰恰是这条测试存在的理由。写成上界：认出老页面的附图写法会让 images
     // 那个数下降（绿），而任何一处新的抽取器退化都会让它上涨（红）。
+    //
+    // **2026-09-06：action 从 59 收到 13。** 动作改成取整句之后，结尾那个冒号
+    // 被去掉了——而 59 里有 49 对差异**只差冒号宽窄**（老页面 `说:`，新页面 `说：`）。
+    // 那 49 对不是豆瓣改了措辞，是同一个动作的两种排版，收掉之后这个上界才重新
+    // 有意义：留在 59 等于给 46 次真的抽取器退化预先放行。
     const CHURN = {
-      target_title: 380, action: 59, images: 27, target_type: 4, target_id: 4, text: 9,
+      target_title: 380, action: 13, images: 27, target_type: 4, target_id: 4, text: 9,
     };
     const seen = {};
     for (const b of broadcasts) {
