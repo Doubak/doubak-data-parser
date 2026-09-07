@@ -73,6 +73,14 @@ function summarize({ marks, broadcasts, longform }, warnings) {
     longform: longform.length,
     longform_revisions: longform.reduce((n, r) => n + r.revisions.length, 0),
     longform_body_contains: longform.map((r) => r.revisions[0].fields.body ?? '').join('\n'),
+    // 逐篇的 `URL → [visibility, restricted_by]`。**必须是映射，不能是集合**：
+    // 只断言「出现过 author 和 platform」的话，把两篇的判断整个对调也照样绿，
+    // 而对调正是这条规则最要命的错法——那等于告诉用户「这篇是你自己藏的」，
+    // 而实际上是豆瓣锁的。
+    longform_restriction: Object.fromEntries(longform.map((r) => {
+      const f = r.revisions[r.revisions.length - 1].fields;
+      return [r.url, [f.visibility ?? null, f.restricted_by ?? null]];
+    })),
   };
 }
 
@@ -108,7 +116,13 @@ describe('canonical 一致性用例', () => {
           ? String(actual).includes(String(want))
           : Array.isArray(want)
             ? want.every((v) => actual.includes(v)) && actual.length === want.length
-            : actual === want;
+            // 映射：键集合与每个值都要相等。**键数也要比**，否则实现少产出一条
+            // 记录时这条断言会照样绿（少的那条根本不被遍历到）。
+            : want && typeof want === 'object'
+              ? actual && Object.keys(want).length === Object.keys(actual).length
+                && Object.entries(want).every(
+                  ([k, v]) => JSON.stringify(actual[k]) === JSON.stringify(v))
+              : actual === want;
         assert.ok(
           ok,
           `${name}: ${key} 应为 ${JSON.stringify(want)}，实际 ${JSON.stringify(actual)}\n\n${why}\n`,

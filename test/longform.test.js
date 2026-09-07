@@ -14,13 +14,24 @@ import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
 import { ARCHIVE_20260806, readCapture } from './real-archive.js';
 
-const notePage = (id, body, footer = `1740人浏览`) => `<html><body>
+const notePage = (id, body, footer = `1740人浏览`, {
+  // 真实页面上这三样是分开的三处东西，所以夹具也分开：
+  //   stat    页脚那个 `note-footer-stat` 容器（**在不在**，决定 public 还是 unknown）
+  //   privacy 容器里那一行「此日记锁定仅自己可见」
+  //   censor  豆瓣自己那条通告（**只有它能证明是豆瓣锁的**）
+  stat = true, privacy = false, censor = false,
+} = {}) => `<html><body>
+  ${censor ? `<div class="notice-info notice-info-type-4"><div class="notice-info-texts">
+    <p class="notice-info-text"><i class="notice-info-icon "></i>
+    含有违规或引发不良讨论的内容，内容仅自己可见，请勿发布同类信息 </p></div></div>` : ''}
   <div id="note-${id}" class="note-container" data-url="https://www.douban.com/note/${id}/" data-author="MewX">
     <h1>标题在这</h1>
     <span class="pub-date">2025-04-14 18:47:50 澳大利亚</span>
     <div class="note" id="note_${id}_short" style="display:none;"></div>
     <div id="note_${id}_full"><div id="link-report"><div class="note">${body}</div></div></div>
-    <div id="note_${id}_footer">${footer}</div>
+    <div id="note_${id}_footer">${stat ? `<div class="note-footer-stat">
+      ${privacy ? '<div class="note-footer-stat-privacy"><span>此日记锁定仅自己可见</span></div>' : ''}
+      <span class="note-footer-stat-modify">编辑 | 删除</span></div>` : ''}${footer}</div>
   </div></body></html>`;
 
 describe('日记', () => {
@@ -277,5 +288,107 @@ describe('/topic/ 那种日记', () => {
     assert.ok(r.body.length > 100, `正文只有 ${r.body.length} 字，像是被截断了`);
     assert.ok(!/\d+浏览/.test(r.body));
     assert.ok(!/Do\.add|doubanio\.com\/cuphead/.test(r.body), '正文里混进了豆瓣的前端脚本');
+  });
+});
+
+/**
+ * 「仅自己可见」有两个成因，方向相反。
+ *
+ * 实测档案里那篇《想看的被河蟹的电影》读作「仅自己可见」，而它**不是作者藏的**：
+ * 页面上豆瓣自己写着「含有违规或引发不良讨论的内容……请勿发布同类信息」。
+ *
+ * 把两者合成一个布尔值，下游只有两种做法，两种都错：一律发出去，等于把作者藏起来
+ * 的东西公开；一律藏起来，等于这份存档**替豆瓣把它二次消音**——而后者更隐蔽，
+ * 一条被静默藏起来的记录不留任何痕迹给人发现。
+ */
+describe('可见性：豆瓣锁的，和作者藏的', () => {
+  const topicPage = (body, { priv = false } = {}) => `<html><body>
+    <link rel="canonical" href="https://www.douban.com/topic/499256241/">
+    <h1 class="topic-title">标题在这</h1>
+    <div class="personal-topic" id="topic-content">
+      <div class="topic-meta">
+        <span class="create-time">2026-09-07 16:56:22</span>
+        <span class="ip-location">澳大利亚</span>
+        ${priv ? '<i class="private-tag" title="仅自己可见"></i>' : ''}
+      </div>
+      <div class="topic-content"><div class="rich-content topic-richtext">${body}</div></div>
+    </div></body></html>`;
+
+  test('容器在、里面没标记 → public', () => {
+    const r = extractLongform(notePage('1', '<p>正文</p>'), 'note');
+    assert.equal(r.visibility, 'public');
+    assert.equal(r.restrictedBy, null);
+    assert.equal(r.restrictionNotice, null);
+  });
+
+  test('**豆瓣锁的 → platform，而且逐字留下豆瓣那句判词**', () => {
+    // 那句话本身就是档案材料：它是豆瓣对用户自己写的东西下的评价，而豆瓣不会替谁
+    // 保存它——与「分享了」被改成「转发了」是同一类上游史料。
+    const r = extractLongform(
+      notePage('2', '<p>正文</p>', '1740人浏览', { privacy: true, censor: true }), 'note');
+    assert.equal(r.visibility, 'private');
+    assert.equal(r.restrictedBy, 'platform');
+    assert.equal(r.restrictionNotice,
+      '含有违规或引发不良讨论的内容，内容仅自己可见，请勿发布同类信息');
+  });
+
+  test('作者自己设的 → author，没有判词', () => {
+    const r = extractLongform(topicPage('<p>正文</p>', { priv: true }), 'note');
+    assert.equal(r.visibility, 'private');
+    assert.equal(r.restrictedBy, 'author');
+    assert.equal(r.restrictionNotice, null);
+  });
+
+  test('**连隐私容器都找不到 → unknown，不是 public**', () => {
+    // 豆瓣改一次 markup，所有私密日记就静默变成公开——而发出去的东西撤不回来。
+    // 豆列那边（extractVisibility）早就写着同一条，这里是把它补到日记上。
+    const r = extractLongform(notePage('3', '<p>正文</p>', '1740人浏览', { stat: false }), 'note');
+    assert.equal(r.visibility, 'unknown');
+    assert.equal(r.restrictedBy, null);
+  });
+
+  test('**判据是结构，不是「页面上有没有『仅自己可见』这几个字」**', () => {
+    // 按文字认的话，正文里写着这几个字的日记会被判成私密——与广播那条
+    // 「（全文）必须结构性地认，不能按文字认」是同一条规则。
+    const r = extractLongform(
+      notePage('4', '<p>我本来想把这篇设成仅自己可见的，后来没设。</p>'), 'note');
+    assert.equal(r.visibility, 'public');
+    assert.equal(r.restrictedBy, null);
+  });
+
+  test('**评论是 null，不是 unknown，也不是 public**', () => {
+    // 与 `又名` 的 null（没读详情页）和 [] （读了，没有）同一条。实测 2 篇评论页上
+    // 「私密」「仅自己」「可见」「公开」一个字都没有、连容器都不存在——那不是没读到，
+    // 是豆瓣没给评论这个功能。写成 unknown 会让它们永远挂在「说不准」那一栏里，
+    // 而一份永远有条目的名单是没人看的名单。
+    const r = extractLongform(`<html><body><div class="article">
+      <h1><span property="v:summary">评论标题</span></h1>
+      <div class="main" id="8381069"><div class="main-meta"><span content="2017-02-24">2017-02-24 16:15:24</span></div>
+      <div id="link-report-8381069"><p>正文</p></div></div></div><style></style></body></html>`, 'review');
+    assert.equal(r.visibility, null);
+    assert.equal(r.restrictedBy, null);
+  });
+
+  test('对着真实档案：那篇被豆瓣锁掉的日记', async (t) => {
+    const page = await readCapture('doubak-bundle-20260806T131620Z-354a1d',
+      '20260806T131620Z-354a1d#000013');
+    if (!page) return t.skip('真实档案不在这台机器上');
+    const r = extractLongform(page, 'note');
+    assert.equal(r.title, '想看的被河蟹的电影');
+    assert.equal(r.visibility, 'private');
+    assert.equal(r.restrictedBy, 'platform');
+    assert.match(r.restrictionNotice, /含有违规/);
+  });
+
+  test('对着真实档案：那篇作者自己设成私密的日记', async (t) => {
+    const page = await readCapture('doubak-bundle-20260907T085647Z-8ffd98',
+      '20260907T085647Z-8ffd98#000010');
+    if (!page) return t.skip('真实档案不在这台机器上');
+    const r = extractLongform(page, 'note');
+    assert.equal(r.title, '测试一下私密日记？');
+    assert.equal(r.visibility, 'private');
+    // **这一篇与上一篇是这条规则的两个端点。** 少了任何一个，「分开」就无从证明。
+    assert.equal(r.restrictedBy, 'author');
+    assert.equal(r.restrictionNotice, null);
   });
 });

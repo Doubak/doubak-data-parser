@@ -23,8 +23,19 @@ export const ARCHIVE = process.env.DOUBAK_ARCHIVE_DIR ?? join(homedir(), 'downlo
 /** 里头那份按日期归拢的旧档案集合（24 份，横跨四个格式版本）。 */
 export const ARCHIVE_20260806 = join(ARCHIVE, '20260806');
 
-/** @param {string} name bundle 目录名 @returns {string} */
-export const realBundle = (name) => join(ARCHIVE_20260806, name);
+/**
+ * 一份 bundle 的目录。
+ *
+ * 先看那个按日期归拢的子目录，再看根目录——**新抓的档案是直接落在根上的**，
+ * 只找子目录的话，对着新档案写的测试会「带原因跳过」，而那个原因是假的
+ * （档案就在这台机器上）。这个文件本来就是为了「路径别再无声地烂掉」而存在的。
+ *
+ * @param {string} name bundle 目录名 @returns {string}
+ */
+export const realBundle = (name) => {
+  const dated = join(ARCHIVE_20260806, name);
+  return existsSync(dated) ? dated : join(ARCHIVE, name);
+};
 
 /** @param {string} p @returns {boolean} */
 export const have = (p) => existsSync(p);
