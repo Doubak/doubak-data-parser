@@ -392,3 +392,106 @@ describe('可见性：豆瓣锁的，和作者藏的', () => {
     assert.equal(r.restrictionNotice, null);
   });
 });
+
+/**
+ * 认不出隐私容器时留下的线索。
+ *
+ * `unknown` 的处置是「当私密处理」——安全，但也因此**安静**：站点少发一页、导出收成
+ * 「仅提及者可见」，两边都不报错。而成因几乎只有一个，就是豆瓣改了 markup。那一页
+ * 已经如实躺在档案里，改好抽取器重跑就救得回来——**前提是有人知道该去改哪儿**。
+ */
+describe('认不出来的时候，留下线索', () => {
+  const noContainer = (extra = '') => `<html><body>
+    <div id="note-9" class="note-container" data-url="https://www.douban.com/note/9/">
+      <h1>标题</h1>
+      <span class="pub-date">2025-04-14 18:47:50 澳大利亚</span>
+      <div id="note_9_full"><div id="link-report"><div class="note"><p>正文</p></div></div></div>
+      ${extra}
+      <div id="note_9_footer">1740人浏览</div>
+    </div></body></html>`;
+
+  test('**认不出来时带上找过哪两个容器**', () => {
+    const r = extractLongform(noContainer(), 'note');
+    assert.equal(r.visibility, 'unknown');
+    assert.deepEqual(r.visibilityHint.tried, ['div.topic-meta', 'div.note-footer-stat']);
+  });
+
+  test('**把这一页上长得像隐私标记的类名捞出来** —— 豆瓣改的名字通常就在里面', () => {
+    const r = extractLongform(noContainer(
+      '<div class="note-visibility-badge is-private-v2">仅自己可见</div>'), 'note');
+    assert.deepEqual(r.visibilityHint.sawClasses, ['is-private-v2', 'note-visibility-badge']);
+  });
+
+  test('**一个字的正文都不许进线索** —— 告警是会被贴进 issue 的', () => {
+    const r = extractLongform(noContainer(), 'note');
+    const dumped = JSON.stringify(r.visibilityHint);
+    assert.ok(!dumped.includes('正文'), '正文漏进告警了');
+    assert.ok(!dumped.includes('标题'), '标题漏进告警了');
+  });
+
+  test('类名去重、排序、封顶 8 个 —— 刷屏的告警没人看', () => {
+    const many = Array.from({ length: 20 }, (_, i) => `<i class="private-${i} private-${i}"></i>`).join('');
+    const r = extractLongform(noContainer(many), 'note');
+    assert.equal(r.visibilityHint.sawClasses.length, 8);
+    assert.deepEqual(r.visibilityHint.sawClasses, [...new Set(r.visibilityHint.sawClasses)]);
+  });
+
+  test('认得出来的时候**不带**线索 —— 那是给改抽取器的人看的，不是记录的事实', () => {
+    for (const html of [notePage('1', '<p>正文</p>'),
+      notePage('2', '<p>正文</p>', '1740人浏览', { privacy: true, censor: true })]) {
+      assert.equal(extractLongform(html, 'note').visibilityHint, undefined);
+    }
+  });
+
+  test('线索**不进 canonical** —— 它不是这条记录的事实', async () => {
+    const { parse: doParse } = await import('../src/parse.js');
+    const { longform } = await doParse([{
+      status: 'complete', manifest: null, bundleId: 'aaaaaa',
+      index: [{
+        capture_id: 'aaaaaa#000001', route_key: 'note.item', intent: 'note.item',
+        url: 'https://www.douban.com/note/9/', verdict: 'ok', surface: 'html',
+      }],
+      crawlState: new Map(), coverage: new Map(),
+      payload: async () => noContainer(),
+      close: () => {},
+    }]);
+    const fields = longform[0].revisions[0].fields;
+    assert.equal(fields.visibility, 'unknown');
+    assert.ok(!('visibilityHint' in fields), '线索漏进 canonical 了——它会进摘要，然后凭空造修订');
+  });
+
+  test('**告警要真的报出来，还要带得上网址与 capture_id**', async () => {
+    const { parse: doParse } = await import('../src/parse.js');
+    const { warnings } = await doParse([{
+      status: 'complete', manifest: null, bundleId: 'aaaaaa',
+      index: [{
+        capture_id: 'aaaaaa#000001', route_key: 'note.item', intent: 'note.item',
+        url: 'https://www.douban.com/note/9/', verdict: 'ok', surface: 'html',
+      }],
+      crawlState: new Map(), coverage: new Map(),
+      payload: async () => noContainer('<div class="brand-new-privacy-thing"></div>'),
+      close: () => {},
+    }]);
+    const w = warnings.find((x) => x.kind === 'note_visibility');
+    assert.ok(w, '一条告警都没报——那这件事就是静默的');
+    assert.equal(w.type, 'extractor_stale');
+    assert.equal(w.capture, 'aaaaaa#000001');
+    assert.equal(w.url, 'https://www.douban.com/note/9/');
+    assert.deepEqual(w.sawClasses, ['brand-new-privacy-thing']);
+  });
+
+  test('**认得出来的页面一条告警都不报** —— 常驻告警等于没有告警', async () => {
+    const { parse: doParse } = await import('../src/parse.js');
+    const { warnings } = await doParse([{
+      status: 'complete', manifest: null, bundleId: 'aaaaaa',
+      index: [{
+        capture_id: 'aaaaaa#000001', route_key: 'note.item', intent: 'note.item',
+        url: 'https://www.douban.com/note/1/', verdict: 'ok', surface: 'html',
+      }],
+      crawlState: new Map(), coverage: new Map(),
+      payload: async () => notePage('1', '<p>正文</p>'),
+      close: () => {},
+    }]);
+    assert.deepEqual(warnings.filter((x) => x.kind === 'note_visibility'), []);
+  });
+});
