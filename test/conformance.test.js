@@ -81,6 +81,12 @@ function summarize({ marks, broadcasts, longform }, warnings) {
       const f = r.revisions[r.revisions.length - 1].fields;
       return [r.url, [f.visibility ?? null, f.restricted_by ?? null]];
     })),
+    // 逐条的 `sid → visibility`，同样**必须是映射不是集合**：只断言「出现过
+    // private」的话，把私密那条与公开那条对调也照样绿，而对调正是最要命的错法。
+    broadcast_visibility: Object.fromEntries(broadcasts.map((r) => {
+      const f = r.revisions[r.revisions.length - 1].fields;
+      return [r.upstream_id, f.visibility ?? null];
+    })),
   };
 }
 

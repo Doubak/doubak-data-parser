@@ -451,3 +451,41 @@ describe('对着真实档案', () => {
       '广播冻结的那一句应当与标记的第一版逐字相同 —— 两个独立来源互相印证');
   });
 });
+
+
+test('**只有作者本人看得见的广播要认出来**', () => {
+  // 抓取跑在用户自己的登录态下，所以时间线上包含这类条目。不认出来，canonical 里
+  // 它们与公开广播分不出，而站点默认照发——实测这正是一篇私密日记的全文出现在
+  // 样张站首页上的原因。
+  const page = (cls) => `
+    <div class="new-status status-wrapper" data-uid="1" data-sid="9" data-atype="topic">
+      <div class="${cls}" data-uid="1" data-sid="9">
+        <div class="mod"><div class="hd"><div class="text">
+          <a href="https://www.douban.com/people/me/" class="lnk-people">我</a>
+          <span type="topic">说：</span>
+        </div></div>
+        <div class="bd"><blockquote><p>就反正是一篇私密日记</p></blockquote></div>
+        <span class="created_at" title="2026-09-07 16:56:22"></span>
+        </div>
+      </div>
+    </div>`;
+  const vis = (cls) => extractBroadcasts(page(cls), '1').broadcasts[0]?.visibility;
+  assert.equal(vis('status-item private'), 'private');
+  assert.equal(vis('status-item'), 'public');
+  // **顺序无关。** 按前缀比的话，豆瓣哪天写成 `private status-item` 就整段认不出
+  // 容器，于是所有广播一起变成 null——而 null 在下游按私密处理，一次改版就能把
+  // 整条时间线从站点上抹掉。
+  assert.equal(vis('private status-item'), 'private');
+  assert.equal(vis('status-item privateer'), 'public', '不许被 privateer 这类词误判');
+  assert.equal(vis('status-item deleted'), 'public');
+
+  // **判据只看内层那个 `status-item`，不是整段找 private。** 外层 wrapper 上没有
+  // 这个词，所以「整段里有没有 private」会被正文里写着 private 的广播骗到。
+  const decoy = page('status-item').replace('就反正是一篇私密日记', 'I set it to private');
+  assert.equal(extractBroadcasts(decoy, '1').broadcasts[0].visibility, 'public',
+    '正文里写着 private 的公开广播不许被判成私密');
+
+  // 容器都找不到就是 null，不是 public——同又名的 null（没读详情页）与 []（读了，没有）。
+  const noItem = page('status-item').replace(/<div class="status-item"[^>]*>/, '<div class="whatever">');
+  assert.equal(extractBroadcasts(noItem, '1').broadcasts[0].visibility, null);
+});
