@@ -8,7 +8,7 @@
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { openAll, crowdedDirs, NODE_VERIFY_HOST } from '../src/bundle-source.js';
+import { openAll, crowdedDirs, NODE_VERIFY_HOST, zipsIn } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
 import { verifyAll, badCaptures } from '../src/verify.js';
 
@@ -54,6 +54,18 @@ if (!root) {
 const sources = openAll(root);
 if (sources.length === 0) {
   console.error(`${root} 下没有找到任何 bundle`);
+  // **说得出下一步。** 扩展在 Firefox 上导出交出来的是一个 zip，而这里收的是目录
+  // ——中间隔着一步解压。只说「没找到」的话，用户会去翻别的目录、以为导出坏了。
+  // 与扩展那边 `describeNoBundles` 是同一条判据、同一句话。
+  const zips = zipsIn(root);
+  const ours = zips.filter((z) => /^doubak-.*\.zip$/i.test(z));
+  if (ours.length) {
+    console.error(`  找到了 ${ours[0]}——**这是一个 zip 壳子，要先解压**。`);
+    console.error('  解开之后里面是一个 doubak-bundle-… 目录，那个才是档案本身；');
+    console.error('  它与 Chrome 直接导出的完全一样，把解开后的目录喂给这个命令即可。');
+  } else if (zips.length) {
+    console.error(`  这个目录里有 ${zips.length} 个 zip 文件。如果其中哪一个是导出的档案，请先解压。`);
+  }
   process.exit(1);
 }
 

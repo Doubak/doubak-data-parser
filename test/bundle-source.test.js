@@ -7,11 +7,14 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { openAll, crowdedDirs, dedupe, BundleSource } from '../src/bundle-source.js';
+import { openAll, crowdedDirs, dedupe, BundleSource, zipsIn } from '../src/bundle-source.js';
+
+const BIN = new URL('../bin/parse.js', import.meta.url).pathname;
 
 /**
  * 造一份最小的 bundle：认它的唯一条件是有 `index-*.ndjson`。
@@ -290,5 +293,60 @@ describe('同一份档案出现在两个目录里', () => {
     bundle(root, 'bbb', { rows: 3 });
     assert.deepEqual(idsIn(root), ['aaa', 'bbb']);
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+/**
+ * 一份都没找到时，要说得出下一步。
+ *
+ * 扩展在 Firefox 上导出交出来的是一个 zip（那边没有 File System Access），而这里
+ * 收的是**目录**——`bundle/1.4` 定义的档案就是目录。所以那条路上必然隔着一步解压，
+ * 而屏幕上只有「没有找到任何 bundle」的话，用户会去翻别的目录、以为导出坏了。
+ *
+ * 这与扩展那边的 `describeNoBundles` 是同一条判据、同一句话：**用户从哪一头撞上来
+ * 都有可能**。
+ */
+describe('zipsIn：没找到时的那条线索', () => {
+  const tmp = () => mkdtempSync(join(tmpdir(), 'doubak-zips-'));
+
+  test('认得出 zip，且排好序', () => {
+    const d = tmp();
+    writeFileSync(join(d, 'doubak-archive-3eef52.zip'), '');
+    writeFileSync(join(d, '照片.zip'), '');
+    writeFileSync(join(d, '随手记.txt'), '');
+    assert.deepEqual(zipsIn(d), ['doubak-archive-3eef52.zip', '照片.zip']);
+  });
+
+  test('大小写不敏感 —— Windows 上导出的可能是 .ZIP', () => {
+    const d = tmp();
+    writeFileSync(join(d, 'A.ZIP'), '');
+    assert.deepEqual(zipsIn(d), ['A.ZIP']);
+  });
+
+  test('目录不算，读不了的目录返回空而不是抛', () => {
+    const d = tmp();
+    mkdirSync(join(d, 'x.zip')); // 一个**目录**恰好叫 x.zip
+    assert.deepEqual(zipsIn(d), []);
+    assert.deepEqual(zipsIn(join(d, '压根不存在')), []);
+  });
+
+  test('命令行上真的会说出来', () => {
+    // 判据放在这儿而不是只测 zipsIn：那个函数返回得再对，没人把它接到那句话上
+    // 也白搭——而接线断掉是静默的。
+    const d = tmp();
+    writeFileSync(join(d, 'doubak-archive-x.zip'), '');
+    const r = spawnSync(process.execPath, [BIN, d], { encoding: 'utf8' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /先解压/);
+    assert.match(r.stderr, /doubak-archive-x\.zip/);
+    assert.match(r.stderr, /doubak-bundle/, '要说清解开之后该喂哪个目录');
+    assert.doesNotMatch(r.stderr, /专用格式/, '它不是 Firefox 专用格式，那句话是假的');
+  });
+
+  test('什么 zip 都没有时不许凭空多一句', () => {
+    // 「一个永远有内容的提示等于没有提示」。
+    const r = spawnSync(process.execPath, [BIN, tmp()], { encoding: 'utf8' });
+    assert.equal(r.status, 1);
+    assert.doesNotMatch(r.stderr, /解压/);
   });
 });

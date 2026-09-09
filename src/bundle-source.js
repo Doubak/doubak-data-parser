@@ -260,6 +260,36 @@ export function openAll(root) {
 }
 
 /**
+ * 一份 bundle 都没找到时，看看附近有没有 zip。
+ *
+ * ## 为什么解析器也要管这件事
+ *
+ * 扩展在 Firefox 上导出交出来的是一个 **zip**（那边没有 File System Access），
+ * 而这里收的是**目录**——`bundle/1.4` 定义的档案就是目录，`bin/verify.js`、
+ * `validate.py` 也都一样。所以那条路上必然隔着一步解压。
+ *
+ * 而用户走到这儿的时候，屏幕上只有一句「没有找到任何 bundle」：**这句话对，
+ * 但它指向的下一步是错的**——他会去翻别的目录、以为导出坏了，而真正要做的只是
+ * 解压。与扩展那边的 `describeNoBundles` 是同一条判据、同一句话；两处都要说，
+ * 因为用户从哪一头撞上来都有可能。
+ *
+ * 只在**一份都没找到**时才去看，而且只看一层：这是一条线索，不是一次搜索。
+ *
+ * @param {string} root
+ * @returns {string[]} 文件名
+ */
+export function zipsIn(root) {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isFile() && /\.zip$/i.test(e.name))
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
  * 同一份档案被放在两个目录里时，只读一遍。
  *
  * ## 这不是假想
