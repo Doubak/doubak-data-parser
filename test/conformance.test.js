@@ -27,7 +27,7 @@ import { parse } from '../src/parse.js';
 const CASES = new URL('../../doubak-data-specs/canonical/tests/cases', import.meta.url).pathname;
 
 /** @param {object} out `parse()` 的产出 */
-function summarize({ marks, broadcasts, longform }, warnings) {
+function summarize({ marks, subjects, broadcasts, longform }, warnings) {
   const authorities = new Set();
   const identityLayers = new Set();
   let revisions = 0;
@@ -39,6 +39,19 @@ function summarize({ marks, broadcasts, longform }, warnings) {
   return {
     marks: marks.length,
     mark_revisions: revisions,
+
+    // **作品那一侧也要能断言。** 在这之前 summarize 根本没接 subjects，于是
+    // 「豆瓣改了目录数据」这一族的性质一条都表达不了——而那正是这套用例里
+    // catalog-churn / view-counter / cdn-shard 共同守的东西。
+    subjects: subjects.length,
+    subject_revisions: subjects.reduce((n, x) => n + x.revisions.length, 0),
+    // 每个作品的封面**逐版序列**。只数修订条数的话，把 `cover_url` 从 fields 里
+    // 整个删掉照样是绿的（key 还在，条数不变）——而那才是真的丢数据。这一条同时
+    // 钉住三件事：字段还在、分片没变时留的是**第一个**、图变了要开新版。
+    subject_covers: subjects
+      .slice()
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((x) => `${x.id} ${x.revisions.map((r) => r.fields.cover_url).join(' → ')}`),
     authorities: [...authorities].sort(),
     identity_layers: [...identityLayers].sort(),
     warning_types: [...new Set(warnings.map((w) => w.type))].sort(),

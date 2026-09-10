@@ -18,6 +18,7 @@ import { extractMarks } from '../src/extract.js';
 import { openAll } from '../src/bundle-source.js';
 import { parse } from '../src/parse.js';
 import { ARCHIVE_20260806 } from './real-archive.js';
+import { coverUrlKey } from '../src/cover-url-key.js';
 
 /** 真实档案的根。两个 describe 都要用，所以定在模块作用域。 */
 const REAL = ARCHIVE_20260806;
@@ -657,6 +658,59 @@ describe('对着真实档案端到端', () => {
     assert.ok(s, '找不到一个有多个又名的作品');
     const a = s.revisions.at(-1).fields.aliases;
     assert.ok(a.every((x) => x === x.trim() && x.length), '每一项都该是去掉首尾空白的非空串');
+  });
+
+  test('**CDN 分片换了不算一次编辑**（对着真实档案）', async (t) => {
+    if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
+    // 实测（2026-09-10，全量 28 份档案）：这条规则一上，作品修订 8172 → 8061，
+    // 恰好少 111 条，而标记/广播/长文/豆列一条不动。少掉的那 111 条，两版之间
+    // 唯一的差别是 img1 还是 img3——同一条路径，也就是同一张图。
+    //
+    // 判据放在这儿而不是只测那个纯函数：规则对不对是一回事，**它有没有真的接到
+    // 修订判定上**是另一回事，而后者只有喂真数据才看得出来。
+    const { subjects } = await realParse();
+    let revs = 0;
+    let shardOnly = 0;
+    let realCoverChanges = 0;
+    for (const s of subjects) {
+      for (const [i, r] of s.revisions.entries()) {
+        revs += 1;
+        // ① key 必须与原始值对得上 —— 否则「判据」判的是别的东西
+        assert.equal(
+          r.fields.cover_url_key, coverUrlKey(r.fields.cover_url),
+          `${s.medium}/${s.id} 第 ${i} 版的 key 与 cover_url 对不上`,
+        );
+        // ② cover_url 不许带摘要（带了就又会开修订），key 必须带
+        assert.equal('cover_url' in r.digests, false, `${s.medium}/${s.id} 的 cover_url 还带着摘要`);
+        assert.ok('cover_url_key' in r.digests, `${s.medium}/${s.id} 的 cover_url_key 没有摘要`);
+
+        if (i === 0) continue;
+        const prev = s.revisions[i - 1];
+        const pf = prev.fields;
+        // ③ **一条修订不许「只因为分片而存在」。**
+        //
+        // 第一版这里写的是「相邻两版之间不许出现只有主机不同」——**它当场判红了，
+        // 而红的是我**：主机换了、同时别的字段也变了的情况，实测有 91 对。那些修订
+        // 本来就该存在，分片只是搭了个便车。这正是今早在 CLAUDE.md 里刚记下的那条
+        // 「202 是差异对，不是修订数」，隔了两个小时我自己又犯了一次。
+        //
+        // 判据得说本体：key 一样的时候，**必然有别的字段变了**，否则这条修订就是
+        // 凭空的。
+        if (pf.cover_url_key === r.fields.cover_url_key) {
+          const others = new Set([...Object.keys(prev.digests), ...Object.keys(r.digests)]);
+          const moved = [...others].some((k) => prev.digests[k] !== r.digests[k]);
+          if (!moved) shardOnly += 1;
+        } else {
+          realCoverChanges += 1;
+        }
+      }
+    }
+    assert.ok(revs > 1000, `只查到 ${revs} 条作品修订，判据多半坏了`);
+    assert.equal(shardOnly, 0, '还有修订是「只有 CDN 分片不同」造出来的');
+    // ④ **反方向**：真的换了海报仍然要开修订。只测 ③ 的话，把 cover_url 从
+    // fields 里整个删掉也是绿的——那才是真的丢数据。下界不是等号：换过封面的
+    // 作品只会越来越多。
+    assert.ok(realCoverChanges > 100, `真实的换封面只剩 ${realCoverChanges} 次，规则多半抹多了`);
   });
 
   test('**追加是纯增的** —— 多喂一份档案不会丢掉任何东西', async (t) => {
