@@ -172,7 +172,7 @@ https://img3.doubanio.com/view/photo/s_ratio_poster/public/p2888584528.webp
 
 为此引入 `cover_url_key` 索引字段：
 - **`cover_url`**：忠实保留网页上观察到的原始完整 URL，该字段不参与版本修订判定；
-- **`cover_url_key`**：剥离已知的 CDN 分片主机名后计算哈希，作为版本修订的判定基准。
+- **`cover_url_key`**：将已知的 CDN 分片主机名替换为统一占位主机，生成规范化 URL 字符串，作为版本修订的判定基准。
 
 核心约束原则：
 - **仅归一化主机名，完整保留资源路径**：路径中的图片 ID 已具备全局唯一性；
