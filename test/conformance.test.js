@@ -111,7 +111,7 @@ describe('canonical 一致性用例', () => {
 
   const names = readdirSync(CASES).sort();
 
-  test('用例是有的 —— 空目录不该悄悄算通过', () => {
+  test('校验目标用例存在 —— 目录为空时禁止静默判定通过', () => {
     // 这条守的是套件本身：`cases/` 被清空或路径写错时，上面的循环会一条都不跑，
     // 而测试报告仍然全绿。那比用例失败更糟。
     assert.ok(names.length >= 15, `只找到 ${names.length} 个用例`);

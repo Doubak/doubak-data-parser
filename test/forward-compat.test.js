@@ -48,7 +48,7 @@ describe('来自未来的档案：读得动，且不丢东西', () => {
     src.close();
   });
 
-  test('**未知字段不许丢**（规范 §10）', { skip }, () => {
+  test('**未知字段必须完整保留，严禁丢失**（规范 §10）', { skip }, () => {
     // 「只增不改」这条规则的全部前提就是读者不丢未知字段。丢了的话，一个 1.9 的
     // 读者把档案重写一遍，1.9 新增的东西就永久没了——而档案是不可重抓的。
     const idx = readdirSync(FUTURE).find((f) => f.startsWith('index-'));
@@ -61,7 +61,7 @@ describe('来自未来的档案：读得动，且不丢东西', () => {
     assert.ok(m.future_top_level_field, 'manifest 上也该有一个未知字段');
   });
 
-  test('**开放词表的未知取值原样保留，不许猜**', { skip }, () => {
+  test('**开放词表中的未知取值原样保留，严禁猜测推断**', { skip }, () => {
     // `intent` 是开放词表。遇到不认识的取值，正确做法是原样留着——猜一个是不可逆的，
     // 留着是可查的。这与解析器对 `medium`、`category` 的处置是同一条规矩。
     const idx = readdirSync(FUTURE).find((f) => f.startsWith('index-'));

@@ -156,7 +156,7 @@ describe('没有 manifest 的档案归到哪个账号名下', () => {
   /** 同一部电影，两次观测都没有 data-cid —— 走的正是退化键那条路。 */
   const page = () => listPage({ cid: null, date: '2025-05-05', comment: '一样的短评' });
 
-  test('**`unknown` 不许成为第二个键空间**', async () => {
+  test('**严禁将 `unknown` 作为第二键空间使用**', async () => {
     // 退化键是 `d:<账号>:<媒介>:<作品 id>`。没有 manifest 的档案拿不到账号，
     // 原来就写成 `'unknown'`——于是同一个作品在两种档案里落到两个不相交的键上，
     // 与上面那个 data-cid 的 bug 是同一个形状，只是换了个字段来劈。

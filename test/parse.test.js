@@ -621,7 +621,7 @@ describe('对着真实档案端到端', () => {
     assert.ok(Array.isArray(movie.revisions.at(-1).fields.info['导演']));
   });
 
-  test('**评论区的用户名不许混进 info** —— 那是第三方内容', async (t) => {
+  test('**作品信息字段严禁混入评论区用户名** —— 隔离第三方互动内容', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // span.pl 在页面别处还用来标评论区的用户名。越界的话，几十个陌生人的 id
     // 会变成字段名，存进档案主人的 canonical。
@@ -632,7 +632,7 @@ describe('对着真实档案端到端', () => {
     assert.deepEqual(looksLikeUser, [], `这些键像用户名：${looksLikeUser.join(' ')}`);
   });
 
-  test('**值按 ` / ` 切，`(港/台)` 不许被切开**', async (t) => {
+  test('**字段值按 ` / ` 分隔时，`(港/台)` 地区标注严禁被拆分**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 实测裸斜杠切法把 `犯罪101(港/台)` 切成了两半，4022 张页面上切坏 176 条。
     const { subjects } = await realParse();
@@ -650,7 +650,7 @@ describe('对着真实档案端到端', () => {
     assert.deepEqual(broken.slice(0, 5), [], `${broken.length} 个值的括号不配对，像是被切坏了`);
   });
 
-  test('**又名的顺序不许动，也不去重**', async (t) => {
+  test('**别名列表严格保留原始顺序，禁止去重或重排**', async (t) => {
     if (!existsSync(DL)) return t.skip('真实档案不在这台机器上');
     // 顺序是豆瓣给的，而「哪个排第一」本身就是信息（通常是最通行的那个译名）。
     const { subjects } = await realParse();
@@ -736,7 +736,7 @@ describe('对着真实档案端到端', () => {
   });
 });
 
-describe('哪些判不出来是「改一行就能救回来」的', () => {
+describe('无法判定类型中可通过离线规则补充完整恢复的场景', () => {
   /**
    * 这是 `verdict_reason`（bundle/1.2）真正兑现的地方。解析器能一次扫完所有档案，
    * 回答一个别处回答不了的问题：**欠了多少，以及要不要求人重抓。**
@@ -744,12 +744,12 @@ describe('哪些判不出来是「改一行就能救回来」的', () => {
    * 混成一句「有 N 条失败」的话，用户只能去做代价最大的那个动作。而其中一类是免费的：
    * 页面已经原样躺在 WARC 里，改好抽取器离线重跑就行，一个请求都不用发。
    */
-  test('页面结构变了 → 能救', () => {
+  test('页面结构变化导致的未识别状态 → 可离线恢复', () => {
     assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'frame_anchors_missing' }), true);
     assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'not_an_image' }), true);
   });
 
-  test('**空响应 / 服务端出错 → 救不了，得重抓**', () => {
+  test('**空响应或服务端异常导致的未识别状态 → 无法离线恢复，须重新抓取**', () => {
     // 那两种的字节本来就没拿到，改抽取器无济于事。混进来会让用户以为不用重抓。
     assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'empty_body' }), false);
     assert.equal(isRecalibratable({ verdict: 'unknown', verdict_reason: 'server_error' }), false);
@@ -773,7 +773,7 @@ describe('哪些判不出来是「改一行就能救回来」的', () => {
     assert.equal(isRecalibratable(old), true);
   });
 
-  test('note 说判不出来、但原因是空响应 → 仍然救不了', () => {
+  test('note 记录无法识别但原因为空响应时 → 判定为无法离线恢复', () => {
     assert.equal(isRecalibratable({ verdict: 'blocked', note: '判不出来：响应体为空' }), false);
   });
 
@@ -810,7 +810,7 @@ describe('哪些判不出来是「改一行就能救回来」的', () => {
     assert.equal(stats.recalibratableCovered, 0, '一条都没有别的成功捕获顶上');
   });
 
-  test('**同一个网址另有成功捕获的，不算「可离线救回」**', async () => {
+  test('**相同 URL 已存在成功捕获记录时，不归类为「可离线恢复」**', async () => {
     // 判据与 bundle/1.4 的 resolveGap 是同一条：一句关于某一个网址的断言，
     // 被同一个网址的一次成功捕获证伪。只认完全相同的网址。
     const ok = {
