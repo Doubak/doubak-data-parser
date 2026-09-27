@@ -55,7 +55,7 @@ describe('日记', () => {
     assert.ok(!/人浏览/.test(a.body));
   });
 
-  test('**`<script>` 的内容不许进正文** —— 那里面有豆瓣前端的资源哈希', () => {
+  test('**长文正文严禁包含 `<script>` 脚本内容** —— 过滤前端动态资源哈希', () => {
     // 剥标签的正则只吃 `<...>`，留下的是标签之间的东西——而 `<script>` 之间的
     // 东西是 JS 源码。实测两篇日记因此带上了：
     //
@@ -104,7 +104,7 @@ describe('日记', () => {
     assert.equal(r.body, '第一段\n\n第二段');
   });
 
-  test('**豆瓣的频道标签与版权声明不许进正文** —— 那不是用户写的字', () => {
+  test('**长文正文严禁包含平台频道标签与版权声明** —— 仅保留用户创作内容', () => {
     // `#link-report` 与页脚之间还夹着 div.mod-tags（频道标签）、投诉按钮、
     // div.copyright-claim。不收紧的话正文末尾会挂上「科技 / 生活 /
     // 本文版权归 X 所有…」。与「未知作品」「1740人浏览」同一条规则：
@@ -264,7 +264,7 @@ describe('/topic/ 那种日记', () => {
     assert.match(extractLongform(topic(body), 'note').body, /第一段[\s\S]*第二段/);
   });
 
-  test('**浏览计数不许进正文** —— 它每次抓取都在涨', async () => {
+  test('**长文正文严禁包含浏览阅读计数** —— 排除易变统计数字', async () => {
     // 吞进去的话，同一篇日记每抓一次就多一条修订，也就是凭空捏造编辑历史。
     const a = extractLongform(topic('<p>一字未改</p>', 4), 'note');
     const b = extractLongform(topic('<p>一字未改</p>', 5), 'note');
@@ -422,7 +422,7 @@ describe('认不出来的时候，留下线索', () => {
     assert.deepEqual(r.visibilityHint.sawClasses, ['is-private-v2', 'note-visibility-badge']);
   });
 
-  test('**一个字的正文都不许进线索** —— 告警是会被贴进 issue 的', () => {
+  test('**诊断线索中严禁记录任何正文字符** —— 避免日志与告警泄露隐私', () => {
     const r = extractLongform(noContainer(), 'note');
     const dumped = JSON.stringify(r.visibilityHint);
     assert.ok(!dumped.includes('正文'), '正文漏进告警了');

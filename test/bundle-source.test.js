@@ -285,7 +285,7 @@ describe('同一份档案出现在两个目录里', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test('两份不同的档案不许被当成重复', () => {
+  test('两份独立档案严禁误判为重复档案', () => {
     // 反方向的守卫：去重要是按目录名或按行数去判，两份**不同**的档案就会被
     // 吃掉一份，而那是真的丢数据。
     const root = mkdtempSync(join(tmpdir(), 'doubak-notdup-'));
@@ -343,7 +343,7 @@ describe('zipsIn：没找到时的那条线索', () => {
     assert.doesNotMatch(r.stderr, /专用格式/, '它不是 Firefox 专用格式，那句话是假的');
   });
 
-  test('什么 zip 都没有时不许凭空多一句', () => {
+  test('不存在 zip 文件时禁止额外输出空提示语句', () => {
     // 「一个永远有内容的提示等于没有提示」。
     const r = spawnSync(process.execPath, [BIN, tmp()], { encoding: 'utf8' });
     assert.equal(r.status, 1);

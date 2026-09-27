@@ -77,7 +77,7 @@ describe('抽取', () => {
     assert.ok(!/★|9733/.test(broadcasts[0].text));
   });
 
-  test('**转发进来的是别人的，不许存**', () => {
+  test('**转播的他人动态禁止计入个人广播归档**', () => {
     // 转发不是嵌套结构：豆瓣把原作者那条整个渲染成一个顶层 wrapper，data-uid 是原作者。
     const html = wrap(OWNER, '<span class="created_at" title="2026-01-01 00:00:00">x</span>')
       + wrap('1155157', '<span class="created_at" title="2026-01-02 00:00:00">x</span>');
@@ -130,7 +130,7 @@ describe('动作取整句', () => {
 
   const actionOf = (html) => extractBroadcasts(html, OWNER).broadcasts[0].action;
 
-  test('**12 个标记动作词一个都不许变形** —— 变了就丢一条标记事件', () => {
+  test('**12 个标记动作词严格保持原样，严禁变形** —— 确保标记事件完整识别', () => {
     // 这是这次改动唯一危险的方向：动作词一旦不是原样，ACTION_STATUS 查不到，
     // status 变成 null，而「这条广播没有状态」与「这条广播不是标记」在数据上
     // 分不出来。实测真实档案 3265 条有状态的广播：保住 3265、丢 0。
@@ -198,7 +198,7 @@ describe('动作取整句', () => {
     assert.equal(actionOf(say('<span type="note"></span>')), null);
   });
 
-  test('**右边界是结构，不是长度** —— 时间戳不许被吃进动作句', () => {
+  test('**基于结构判定右边界而非固定长度** —— 严禁将时间戳误解析入动作语句', () => {
     // 实测 21754 条真实广播里，时间戳落进动作句范围的有 0 条。
     // 这条守的是「万一有」：切到 `.text` 的 `</div>` 就停。
     assert.equal(actionOf(say('想看')), '想看');

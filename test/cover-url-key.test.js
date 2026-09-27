@@ -22,7 +22,7 @@ describe('cover_url_key', () => {
     assert.match(same[0], /^https:\/\/img\.doubanio\.com\//);
   });
 
-  test('**尺寸段绝不许被抹掉** —— 不同尺寸是不同的字节', () => {
+  test('**严禁丢失或清除尺寸段** —— 不同尺寸对应不同文件内容', () => {
     // 这是这条规则唯一会造成静默数据丢失的方向。实测舞台剧的列表页缩略图与详情页
     // 封面就只差这一段（small ↔ m），把它抹掉等于说「这两张是同一张」。
     const small = coverUrlKey('https://img1.doubanio.com/pview/drama_subject_poster/small/public/x.jpg');
@@ -51,7 +51,7 @@ describe('cover_url_key', () => {
     }
   });
 
-  test('只动主机那一段，路径里长得像的东西不许被殃及', () => {
+  test('仅规范化主机部分，路径中相似片段禁止被错误替换', () => {
     // 路径里也可能出现 `img1.doubanio.com` 那样的字样（比如某个重定向参数）。
     const u = 'https://img1.doubanio.com/view/photo/public/img1.doubanio.com.jpg';
     assert.equal(coverUrlKey(u), 'https://img.doubanio.com/view/photo/public/img1.doubanio.com.jpg');
