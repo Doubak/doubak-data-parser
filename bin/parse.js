@@ -159,15 +159,22 @@ try {
   console.error(`\n✖ ${err.message}`);
   process.exit(1);
 }
-const { marks, subjects, broadcasts, longform, doulists, warnings, stats, topology } = parsed;
+const {
+  marks, subjects, broadcasts, longform, doulists,
+  albums = [], groupTopics = [], groupJoins = [],
+  warnings, stats, topology,
+} = parsed;
 
 mkdirSync(outDir, { recursive: true });
-const ndjson = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
+const ndjson = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
 writeFileSync(join(outDir, 'marks.ndjson'), ndjson(marks));
 writeFileSync(join(outDir, 'subjects.ndjson'), ndjson(subjects));
 writeFileSync(join(outDir, 'broadcasts.ndjson'), ndjson(broadcasts));
 writeFileSync(join(outDir, 'longform.ndjson'), ndjson(longform));
 writeFileSync(join(outDir, 'doulists.ndjson'), ndjson(doulists));
+writeFileSync(join(outDir, 'albums.ndjson'), ndjson(albums));
+writeFileSync(join(outDir, 'group_topics.ndjson'), ndjson(groupTopics));
+writeFileSync(join(outDir, 'group_joins.ndjson'), ndjson(groupJoins));
 
 // **把档案的拓扑说出来，但不替用户取舍。** 多个根、分叉都很正常（删掉一份重抓、
 // 换台机器、同一天跑两次增量都会分叉），而分叉不是矛盾：捕获是带时间戳的观测，
@@ -185,7 +192,7 @@ if (topology.roots.length > 1 || topology.forks.length) {
 const revs = marks.reduce((n, m) => n + m.revisions.length, 0);
 console.log(`档案 ${stats.bundles} 份 · 列表页 ${stats.pages} 张 · 观测 ${stats.observations} 次 · ${Date.now() - t0} ms`);
 const brevs = broadcasts.reduce((n, b) => n + b.revisions.length, 0);
-console.log(`产出 标记 ${marks.length} 条（修订 ${revs}）· 作品 ${subjects.length} 个 · 广播 ${broadcasts.length} 条（修订 ${brevs}）· 长文 ${longform.length} 篇 · 豆列 ${doulists.length} 份 → ${outDir}/`);
+console.log(`产出 标记 ${marks.length} 条（修订 ${revs}）· 作品 ${subjects.length} 个 · 广播 ${broadcasts.length} 条（修订 ${brevs}）· 长文 ${longform.length} 篇 · 豆列 ${doulists.length} 份 · 相册 ${albums.length} 个 · 小组话题 ${groupTopics.length} 篇 · 加入小组 ${groupJoins.length} 个 → ${outDir}/`);
 if (Object.keys(stats.skipped).length) console.log('跳过:', stats.skipped);
 
 // **把「改一行就能救回来的」单独说。**
