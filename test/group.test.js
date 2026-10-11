@@ -14,6 +14,7 @@ const GROUP_JOINS = fixture('group-joins.html');
 const GROUP_JOINS_MANAGER = fixture('group-joins-manager.html');
 const GROUP_PUBLISH = fixture('group-publish.html');
 const GROUP_TOPIC = fixture('group-topic.html');
+const GROUP_TOPIC_WITH_IMAGE = fixture('group-topic-with-image.html');
 
 describe('加入的小组（group.joins）', () => {
   test('普通用户：抽取 114 个小组，无重复，字段完备', () => {
@@ -69,5 +70,22 @@ describe('发起的讨论（group.publish & group.item）', () => {
     assert.equal(topic.images.length, 1);
     assert.equal(topic.images[0].url, 'https://img3.doubanio.com/view/group_topic/l/public/p742323977.jpg');
     assert.equal(topic.images[0].caption, '番外剧照');
+  });
+
+  test('话题详情页（含单张无图注插图）：抽取全文正文、发布时间、所属小组与内嵌图片', () => {
+    const topic = extractGroupTopic(GROUP_TOPIC_WITH_IMAGE, 'https://www.douban.com/group/topic/206243320/');
+    assert.ok(topic);
+    assert.equal(topic.id, '206243320');
+    assert.equal(topic.title, '本季最烂');
+    assert.equal(topic.published_at, '2020-12-27 01:01:42');
+    assert.equal(topic.group_id, '707926');
+    assert.equal(topic.group_name, '成为神明之日');
+    assert.equal(topic.group_url, 'https://www.douban.com/group/707926/');
+    assert.ok(topic.body.includes('这大概是本季最烂的一部了'));
+    assert.ok(topic.body.includes('![](https://img9.doubanio.com/view/group_topic/l/public/p379527796.jpg)'));
+
+    assert.equal(topic.images.length, 1);
+    assert.equal(topic.images[0].url, 'https://img9.doubanio.com/view/group_topic/l/public/p379527796.jpg');
+    assert.equal(topic.images[0].caption, null);
   });
 });
