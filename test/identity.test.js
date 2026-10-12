@@ -214,4 +214,34 @@ describe('没有 manifest 的档案归到哪个账号名下', () => {
     assert.ok(r.warnings.some((w) => w.type === 'no_owner'),
       '缺 manifest 的档案里的广播仍然不抽');
   });
+
+  test('manifest 中的 nickname 写入 canonical account，且增量补齐时正确丰富', async () => {
+    const src1 = memorySource({
+      bundleId: 'aaaaaa',
+      observedAt: '2026-07-30T10:29:00+08:00',
+      account: { user_id: '82160871', username: 'mewcatcher', nickname: 'MewX' },
+      html: page(),
+    });
+    const r1 = await parse([src1]);
+    assert.equal(r1.marks[0].account.user_id, '82160871');
+    assert.equal(r1.marks[0].account.username, 'mewcatcher');
+    assert.equal(r1.marks[0].account.nickname, 'MewX');
+
+    // 老档案无 nickname，新增量带 nickname：后到的 nickname 补齐到已有记录
+    const oldBundle = memorySource({
+      bundleId: '111111',
+      observedAt: '2026-07-20T10:00:00+08:00',
+      account: { user_id: '82160871', username: 'mewcatcher' },
+      html: page(),
+    });
+    const newBundle = memorySource({
+      bundleId: '222222',
+      observedAt: '2026-07-25T10:00:00+08:00',
+      account: { user_id: '82160871', username: 'mewcatcher', nickname: 'MewX' },
+      html: page(),
+    });
+    const r2 = await parse([oldBundle, newBundle]);
+    assert.equal(r2.marks[0].account.nickname, 'MewX');
+  });
 });
+

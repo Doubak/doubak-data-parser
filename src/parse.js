@@ -929,6 +929,20 @@ function identityOf(store, resolved, m, medium, accountId) {
   return { key: upstream, layer: store.get(upstream)?.identity_layer ?? 'upstream_id' };
 }
 
+function canonicalAccount(account, defaultId = 'unknown') {
+  return {
+    user_id: account?.user_id ?? defaultId,
+    username: account?.username ?? null,
+    nickname: account?.nickname ?? null,
+  };
+}
+
+function mergeAccountInfo(rec, account) {
+  if (!rec?.account) return;
+  if (account?.nickname && !rec.account.nickname) rec.account.nickname = account.nickname;
+  if (account?.username && !rec.account.username) rec.account.username = account.username;
+}
+
 function upsertMark(store, resolved, { m, medium, status, account, observation, parserVersion, tz }) {
   const accountId = account?.user_id ?? 'unknown';
   const { key, layer } = identityOf(store, resolved, m, medium, accountId);
@@ -959,12 +973,14 @@ function upsertMark(store, resolved, { m, medium, status, account, observation, 
       canonical_version: CANONICAL_VERSION,
       identity_layer: layer,
       upstream_id: m.upstreamId ?? null,
-      account: { user_id: accountId, username: account?.username ?? null },
+      account: canonicalAccount(account, accountId),
       medium,
       subject: { id: m.subjectId, url: m.subjectUrl, upstream_deleted: m.upstreamDeleted },
       revisions: [],
     };
     store.set(key, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   // 上游 id 后来才出现（2023-12 起才有 data-cid）——补上，但不改身份层，
   // 因为这条记录此前是靠退化键攒起来的，说成 upstream_id 会掩盖那件事。
@@ -1102,11 +1118,13 @@ function upsertBroadcast(store, { b, account, observation, parserVersion }) {
       canonical_version: CANONICAL_VERSION,
       identity_layer: 'upstream_id',
       upstream_id: b.sid,
-      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      account: canonicalAccount(account),
       url: b.url,
       revisions: [],
     };
     store.set(b.sid, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
 }
@@ -1144,11 +1162,13 @@ function upsertLongform(store, { lf, account, observation, parserVersion }) {
       kind: lf.kind,
       identity_layer: 'upstream_id',
       upstream_id: lf.id,
-      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      account: canonicalAccount(account),
       url: lf.url,
       revisions: [],
     };
     store.set(key, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   appendRevision(rec.revisions, { fields, digests, observation, parserVersion });
 }
@@ -1185,14 +1205,16 @@ function upsertDoulist(store, { d, account, observation, captureIds, parserVersi
       canonical_version: CANONICAL_VERSION,
       identity_layer: 'upstream_id',
       upstream_id: d.id,
-      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      account: canonicalAccount(account),
       // 现在只抓自己编的（intent 是 `doulist.list.created`）。
       ownership: 'created',
-      owner: { user_id: account?.user_id ?? null, username: account?.username ?? null },
+      owner: canonicalAccount(account, null),
       url: d.url,
       revisions: [],
     };
     store.set(d.id, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   appendRevision(rec.revisions, {
     fields,
@@ -1260,11 +1282,13 @@ function upsertAlbum(store, { album, account, observation, captureIds, parserVer
       canonical_version: CANONICAL_VERSION,
       identity_layer: 'upstream_id',
       upstream_id: album.id,
-      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      account: canonicalAccount(account),
       url: album.url ?? null,
       revisions: [],
     };
     store.set(album.id, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   appendRevision(rec.revisions, {
     fields,
@@ -1295,11 +1319,13 @@ function upsertGroupTopic(store, { topic, account, observation, parserVersion, t
       canonical_version: CANONICAL_VERSION,
       identity_layer: 'upstream_id',
       upstream_id: topic.id,
-      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      account: canonicalAccount(account),
       url: topic.url ?? null,
       revisions: [],
     };
     store.set(topic.id, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   appendRevision(rec.revisions, {
     fields,
@@ -1324,11 +1350,13 @@ function upsertGroupJoin(store, { join, account, observation, parserVersion }) {
       canonical_version: CANONICAL_VERSION,
       identity_layer: 'upstream_id',
       upstream_id: join.id,
-      account: { user_id: account?.user_id ?? 'unknown', username: account?.username ?? null },
+      account: canonicalAccount(account),
       url: join.url ?? null,
       revisions: [],
     };
     store.set(join.id, rec);
+  } else {
+    mergeAccountInfo(rec, account);
   }
   appendRevision(rec.revisions, {
     fields,
