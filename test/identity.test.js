@@ -152,6 +152,52 @@ describe('data-cid 是 2023-12 才有的，两边的观测必须认成同一条'
   });
 });
 
+describe('账号资料按 UID 合并，与记录是否重抓及输入顺序无关', () => {
+  const source = (bundleId, account, html = listPage({ cid: '123', date: '2026-01-01', comment: '未修改' })) =>
+    memorySource({ bundleId, account, html, observedAt: '2026-08-01T00:00:00Z' });
+  const oldAccount = { user_id: '82160871', username: 'old-slug', nickname: '旧昵称' };
+  const newAccount = { user_id: '82160871', username: 'new-slug', nickname: '新昵称' };
+
+  test('改名取最新 bundle 的非空资料，反向输入结果也相同，且不制造内容修订', async () => {
+    const old = source('20260701T000000Z-aaaaaa', oldAccount);
+    const newer = source('20260801T000000Z-bbbbbb', newAccount);
+    for (const sources of [[old, newer], [newer, old]]) {
+      const out = await parse(sources);
+      assert.deepEqual(out.marks[0].account, newAccount);
+      assert.equal(out.marks[0].revisions.length, 1, '改昵称不是改短评');
+    }
+    assert.deepEqual(old.manifest.account, oldAccount, '输入 manifest 不得被改写');
+  });
+
+  test('新 bundle 没有重抓旧记录，也要给旧记录补齐昵称', async () => {
+    const old = source('20260701T000000Z-aaaaaa', { user_id: '82160871', username: 'old-slug' });
+    const metadataOnly = source('20260801T000000Z-bbbbbb', newAccount);
+    metadataOnly.index = [];
+    for (const sources of [[old, metadataOnly], [metadataOnly, old]]) {
+      const out = await parse(sources);
+      assert.deepEqual(out.marks[0].account, newAccount);
+    }
+  });
+
+  test('null、缺失与空白资料不会抹掉已有昵称', async () => {
+    const named = source('20260701T000000Z-aaaaaa', newAccount);
+    for (const nickname of [null, undefined, '', ' \n\t ']) {
+      const blank = source('20260801T000000Z-bbbbbb', { user_id: '82160871', nickname });
+      const out = await parse([blank, named]);
+      assert.deepEqual(out.marks[0].account, newAccount);
+    }
+  });
+
+  test('即使显式放行多账号，也不能把一个账号的昵称补给另一个账号', async () => {
+    const ours = source('20260701T000000Z-aaaaaa', { user_id: '82160871' });
+    const theirs = source('20260801T000000Z-bbbbbb', { user_id: '999', nickname: '别人' },
+      listPage({ cid: '456', date: '2026-01-01', comment: '另一条' }));
+    const out = await parse([ours, theirs], { ignoreWarnings: true });
+    assert.equal(out.marks.find((m) => m.account.user_id === '82160871').account.nickname, null);
+    assert.equal(out.marks.find((m) => m.account.user_id === '999').account.nickname, '别人');
+  });
+});
+
 describe('没有 manifest 的档案归到哪个账号名下', () => {
   /** 同一部电影，两次观测都没有 data-cid —— 走的正是退化键那条路。 */
   const page = () => listPage({ cid: null, date: '2025-05-05', comment: '一样的短评' });

@@ -64,7 +64,12 @@ node bin/parse.js ~/downloads/exports ~/downloads/canonical
 
 ### 输出规范化文件
 
-解析产出为 5 个标准 NDJSON 文件，每行单条完整 JSON 对象，便于流式处理及使用 `jq` 直接检索分析：
+各类用户记录的 `account` 保留数字 `user_id`、域名 `username` 与可空的展示昵称
+`nickname`。同一 UID 的资料按 `bundle_id` 取最新非空值，缺失、`null` 或纯空白
+不会清掉已有昵称；未被新增量重抓的旧记录也会补齐。改昵称不产生内容修订，输入
+顺序不影响资料合并，原始 manifest 不会被改写。
+
+解析产出为 8 个标准 NDJSON 文件，每行单条完整 JSON 对象，便于流式处理及使用 `jq` 直接检索分析：
 
 | 文件名 | 内容描述 |
 |---|---|
@@ -73,6 +78,9 @@ node bin/parse.js ~/downloads/exports ~/downloads/canonical
 | `broadcasts.ndjson` | 广播动态：包含精确到秒的时间戳、正文文本、配图 URL、完整动作描述以及可见性状态 |
 | `longform.ndjson` | 长篇创作：包含日记与书评、影评的完整正文 |
 | `doulists.ndjson` | 豆列数据：包含豆列元信息及其收录条目上的个人评语批注 |
+| `albums.ndjson` | 个人相册：包含相册元信息、照片地址与说明 |
+| `group_topics.ndjson` | 发起的小组讨论：包含所属小组、主题正文与图片 |
+| `group_joins.ndjson` | 加入的小组：包含小组资料与成员角色 |
 
 ```sh
 # 查询评分为 5 星的电影短评：
