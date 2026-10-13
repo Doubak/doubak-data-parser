@@ -69,6 +69,11 @@ node bin/parse.js ~/downloads/exports ~/downloads/canonical
 不会清掉已有昵称；未被新增量重抓的旧记录也会补齐。改昵称不产生内容修订，输入
 顺序不影响资料合并，原始 manifest 不会被改写。
 
+`manifest.crawl_scope.visibility: public` 的所有观测均限制为 `absence_authority: none`，
+不能根据公开页面缺少私密记录推断删除。同一 UID 的本人与公开档案仍可合并内容。
+匿名页面未展示标签或游戏评分时，首次观测省略相应字段；已有历史值保持不变，并用
+observation 的 `omitted_fields` 说明本次未提供这些字段的新证据，不制造清空修订。
+
 解析产出为 8 个标准 NDJSON 文件，每行单条完整 JSON 对象，便于流式处理及使用 `jq` 直接检索分析：
 
 | 文件名 | 内容描述 |
