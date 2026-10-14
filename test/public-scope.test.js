@@ -63,3 +63,29 @@ test('只有匿名公开观测时，未展示 tags 省略字段，不能声明�
   assert.equal(Object.hasOwn(revision.digests, 'tags'), false);
   assert.equal(revision.observations[0].absence_authority, 'none');
 });
+
+test('登录者的作品详情控件不成为公开目标的评分、短评、标签', async () => {
+  for (const operator_mode of ['authenticated', 'anonymous']) {
+    const src = source('20260201T000000Z-bbbbbb', { visibility: 'public', operator_mode, operator_user_id: '222' });
+    const listHtml = src.payload();
+    const detail = { ...src.index[0], capture_id: `${src.bundleId}#000002`, intent: 'interest.item',
+      route_key: 'interest.item', url: 'https://movie.douban.com/subject/1234567/' };
+    src.index.push(detail);
+    src.payload = row => row.intent === 'interest.item' ? `<script>window._GLOBAL_NAV={USER_ID:"222"};</script>
+      <div id="info"><span class="pl">导演:</span>目录作者<br></div>
+      <div id="interest_sect_level"><span class="rating1-t"></span><span class="comment">操作者私密短评</span>
+      <span class="tags">标签: 操作者私密标签</span><textarea>操作者私密短评</textarea></div>` : listHtml;
+    const out = await parse([src]);
+    assert.equal(out.marks.length, 1);
+    assert.equal(out.marks[0].account.user_id, '111');
+    const fields = out.marks[0].revisions.at(-1).fields;
+    assert.equal(fields.rating, 4);
+    assert.equal(fields.comment, '原短评');
+    assert.deepEqual(fields.tags, ['剧情', '日本']);
+    assert.deepEqual(out.subjects[0].revisions.at(-1).fields.info, { '导演': ['目录作者'] });
+    assert.doesNotMatch(JSON.stringify(out.marks) + JSON.stringify(out.subjects), /操作者私密/);
+    src.index = [detail];
+    const alone = await parse([src]);
+    assert.equal(alone.marks.length, 0, '详情页不能自行产生账号标记');
+  }
+});

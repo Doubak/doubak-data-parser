@@ -165,7 +165,7 @@ describe('抽取：每种媒介一套选择器', () => {
     );
   });
 
-  test('**游戏：评分在 data-rating，短评在裸 div，id 在删除按钮上**', () => {
+  test('**游戏：评分在正文星级，短评在裸 div，id 在删除按钮上**', () => {
     // 用电影那套选择器量游戏，会得出「0% 有评分、0% 有短评」——而真值是 51% 与 72%。
     const html = `<div class="common-item">
       <div class="pic"><a href="https://www.douban.com/game/36092279/"><img src="https://img2.doubanio.com/lpic/s1.jpg"></a></div>

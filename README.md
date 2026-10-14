@@ -283,3 +283,11 @@ python3 <doubak-data-specs>/bundle/v1/validate.py <归档目录>
 规范化 canonical 数据产出后，可供下游组件自由接入：
 - 使用 [`doubak-site-generator`](https://github.com/Doubak/doubak-site-generator) 渲染为独立可浏览的静态站点与本地图片库；
 - 使用 [`doubak-export-adapters`](https://github.com/Doubak/doubak-export-adapters) 转换为 NeoDB、Letterboxd 或 Goodreads 等平台的结构化导入文件。
+
+### 公开页面中的访问者控件
+
+作品详情页仅用于补充作品元数据，不从“我的评价”、收藏编辑表单或社区短评生成目标账号的标记。
+游戏列表的评分从条目正文星级提取，短评不依赖本人专属的修改/删除按钮；读取范围截止于条目闭合边界，
+避免末项缺失字段时误读页尾访问者表单。解析版本 `0.15.1` 对本地 120 张正常游戏列表页的 1,522 条观测回放，
+补回 19 次评分与 2 次单字短评观测，未丢失旧解析器已读出的评分。这是历史本人 bundle 的回放，
+不代表已完成真实跨账号页面的在线验收。
