@@ -77,6 +77,44 @@ describe('抽取', () => {
     assert.ok(!/★|9733/.test(broadcasts[0].text));
   });
 
+  test('**转发附言与不带 <p> 的广播，正文也要抽到** —— 转发引言卡片与占位符禁止混入正文', () => {
+    // 真实页面的另一种形状：转发附言或直接发表的广播直接裸在 <blockquote> 内，不带 <p>。
+    // 原抽取器依赖 /<p[^>]*>([\s\S]*?)<\/p>/，导致转发附言被整段丢弃（text 为 null）。
+    // 同时，尾随的被转广播卡片（无论正常展示还是「[ 该广播仅作者本人可见 ]」）属于引用或系统占位，
+    // 严禁作为正文留存。
+    const resharedHtml = wrap(OWNER, `<a class="lnk-people">MewX</a> 转发:
+      <span class="created_at" title="2018-06-28 20:20:52">x</span>
+      <blockquote>
+        我也一直觉得我高三同桌就你了 哈哈哈哈 恃才傲物的咱俩一个人坐&nbsp;
+        <span>
+          <a class="reshared_by" href="https://www.douban.com/people/69305634/">了凡</a>
+          :&nbsp;高中，我们都不允许男女坐……不过我觉得高中最后阶段，老夏也算是我同桌了吧！
+        </span>
+        <a class="reshared_by more-reshare" href="https://www.douban.com/people/69305634/status/2181565157/">&nbsp;更多转发...</a>
+      </blockquote>`);
+    const r1 = extractBroadcasts(resharedHtml, OWNER);
+    assert.equal(r1.broadcasts.length, 1);
+    assert.equal(r1.broadcasts[0].text, '我也一直觉得我高三同桌就你了 哈哈哈哈 恃才傲物的咱俩一个人坐');
+
+    const privateResharedHtml = wrap(OWNER, `<a class="lnk-people">MewX</a> 转发:
+      <span class="created_at" title="2018-06-28 20:20:52">x</span>
+      <blockquote>
+        我也一直觉得我高三同桌就你了 哈哈哈哈 恃才傲物的咱俩一个人坐&nbsp;
+        <span class="reshared_by deleted">[&nbsp;该广播仅作者本人可见&nbsp;]</span>
+        <a class="reshared_by more-reshare" href="https://www.douban.com/people/69305634/status/2181565157/">&nbsp;更多转发...</a>
+      </blockquote>`);
+    const r2 = extractBroadcasts(privateResharedHtml, OWNER);
+    assert.equal(r2.broadcasts.length, 1);
+    assert.equal(r2.broadcasts[0].text, '我也一直觉得我高三同桌就你了 哈哈哈哈 恃才傲物的咱俩一个人坐');
+
+    const plainHtml = wrap(OWNER, `<a class="lnk-people">MewX</a> 说:
+      <span class="created_at" title="2020-01-01 12:00:00">x</span>
+      <blockquote>半年没写竟然感觉如此违和哈哈哈哈&nbsp;</blockquote>`);
+    const r3 = extractBroadcasts(plainHtml, OWNER);
+    assert.equal(r3.broadcasts.length, 1);
+    assert.equal(r3.broadcasts[0].text, '半年没写竟然感觉如此违和哈哈哈哈');
+  });
+
   test('**转播的他人动态禁止计入个人广播归档**', () => {
     // 转发不是嵌套结构：豆瓣把原作者那条整个渲染成一个顶层 wrapper，data-uid 是原作者。
     const html = wrap(OWNER, '<span class="created_at" title="2026-01-01 00:00:00">x</span>')
