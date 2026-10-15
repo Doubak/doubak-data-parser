@@ -80,7 +80,7 @@ observation 的 `omitted_fields` 说明本次未提供这些字段的新证据�
 |---|---|
 | `marks.ndjson` | 标记记录：包含想看、看过、在看状态，以及评分、短评、标签等字段 |
 | `subjects.ndjson` | 作品目录数据：包含作品标题、封面图 URL、原始未拆解元数据文本 |
-| `broadcasts.ndjson` | 广播动态：包含精确到秒的时间戳、正文文本、配图 URL、完整动作描述以及可见性状态 |
+| `broadcasts.ndjson` | 广播动态：包含精确到秒的时间戳、正文文本、配图 URL、完整动作描述以及可见性状态；topic 动态另保留独立标题与原页链接 |
 | `longform.ndjson` | 长篇创作：包含日记与书评、影评的完整正文 |
 | `doulists.ndjson` | 豆列数据：包含豆列元信息及其收录条目上的个人评语批注 |
 | `albums.ndjson` | 个人相册：包含相册元信息、照片地址与说明 |
