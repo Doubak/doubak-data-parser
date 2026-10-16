@@ -57,7 +57,7 @@ node bin/parse.js ~/downloads/exports ~/downloads/canonical
 
 在此基础上，系统会主动拦截并报错的两类真正异常：
 
-- **混杂了不同账号的归档（默认直接报错中断）**：一旦跨账号数据合并入同一份规范化输出，后续将无法逆向拆分。若用户明确需要合并多账号，可显式传入 `--ignore-warnings` 参数放行。即使绕过阻断，系统仍会在最终元数据中保留 `type: multiple_accounts` 告警记录；
+- **混杂了不同账号的归档（默认直接报错中断）**：跨账号混合输出不符合个人站点和单账号导出的输入约定。若用户明确需要合并多账号，可显式传入 `--ignore-warnings` 参数放行。即使绕过阻断，系统仍会在最终元数据中保留 `type: multiple_accounts` 告警记录；
 - **水位线基准（floor）指向的归档缺失（输出告警）**：若增量归档所依赖的历史基准未包含在输入目录中，意味着基准线以下的历史区间存在覆盖盲区，系统会输出明确的空洞告警。
 
 ---
@@ -291,3 +291,14 @@ python3 <doubak-data-specs>/bundle/v1/validate.py <归档目录>
 避免末项缺失字段时误读页尾访问者表单。解析版本 `0.15.1` 对本地 120 张正常游戏列表页的 1,522 条观测回放，
 补回 19 次评分与 2 次单字短评观测，未丢失旧解析器已读出的评分。这是历史本人 bundle 的回放，
 不代表已完成真实跨账号页面的在线验收。
+
+### 账号资料与近期实测边界
+
+当前从 manifest 保留账号昵称，尚不输出 `profile.ndjson` 或结构化头像。
+下一步见[头像归档设计](https://github.com/Doubak/doubak-extension/blob/main/docs/designs/account-avatar-and-site-branding.md)；
+原始主页含图片 URL 不代表归档里有图片字节。
+
+2026-10-16 已用本人新增量档案验证 20 条广播，包括 topic 动态的独立标题、正文、时间及来源链接；
+与八份祖先合并得到 3,447 条广播且无告警。另一个公开账号样本已完成 parser / exporter / site-generator
+离线链路核对。历史失败响应仍保留，重解析不改写它们的 verdict；这不是对所有公开页面类型的在线验收。
+CLI 输入应预先按 UID 分开，尚无统一 `--account` 选择器；不要用 `--ignore-warnings` 将多账号混成个人站点。
