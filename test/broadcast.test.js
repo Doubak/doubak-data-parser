@@ -440,8 +440,13 @@ describe('对着真实档案', () => {
     // 豆瓣把小组渲染成 `group/networks/` 或 `group/145884/`（同一个组的两种写法），
     // 以及一条广播指向的 subject id 真的换了。**那是豆瓣自己改的，与 target_title
     // 那 380 条同类**，所以进上界而不是进 FROZEN。
+    //
+    // **2026-10-16：加了 text_parts，上界 5。**
+    // 豆瓣在 2022 年直接以 douc.cc 作为 href，后期版本改由 title 标注 douc.cc 并将真实目标
+    // 写入 href。此变化导致 1676348292 跨版本分裂为两版修订，连带使 text 间的 \r\n / \n
+    // 真实排版差异计入 CHURN（text 上界 9 → 10）。
     const CHURN = {
-      target_title: 380, action: 13, action_parts: 15, images: 27, target_type: 4, target_id: 4, text: 9,
+      target_title: 380, action: 13, action_parts: 15, images: 27, target_type: 4, target_id: 4, text: 10, text_parts: 5,
     };
     const seen = {};
     for (const b of broadcasts) {

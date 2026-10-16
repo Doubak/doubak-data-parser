@@ -121,6 +121,7 @@ describe('哪些捕获能当内容读', () => {
 describe('摘要', () => {
   test('NFC、去尾空白、统一换行', () => {
     assert.equal(fieldDigest('a\r\nb  '), fieldDigest('a\nb'));
+    assert.equal(fieldDigest([{ text: 'a\r\nb' }]), fieldDigest([{ text: 'a\nb' }]));
     assert.equal(fieldDigest('Å'), fieldDigest('Å'));
   });
 
