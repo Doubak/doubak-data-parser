@@ -107,3 +107,27 @@ test('无链接的正文保持 textParts 为 null', () => {
   assert.equal(broadcasts[0].text, '这是一条普通的纯文本广播，没有任何链接。');
   assert.equal(broadcasts[0].textParts, null);
 });
+
+test('textParts 边界情况：两端多余空白与异常链接处理', () => {
+  const html = `
+<div class="new-status status-wrapper" data-uid="82160871" data-sid="5678">
+  <div class="status-item" data-uid="82160871" data-sid="5678">
+    <div class="mod">
+      <div class="hd"><div class="text"><a href="/people/mewcatcher/" class="lnk-people">MewX</a> 说：</div></div>
+      <div class="bd"><blockquote><p>
+        前导空白 <a href="https://www.douban.com/link2/?target=no_url">无url参数的link2</a>
+        中间文字 <a href="not-a-valid-url:$$$">非法URL链接</a>
+        <a href="https://www.douban.com/misc/faq">普通豆瓣链接</a> 尾部空白
+      </p></blockquote></div>
+    </div>
+  </div>
+</div>`;
+  const { broadcasts } = extractBroadcasts(html, '82160871');
+  const b = broadcasts[0];
+  assert.ok(b.textParts);
+  assert.equal(b.textParts.map((p) => p.text).join(''), b.text);
+  assert.equal(b.textParts[1].url, 'https://www.douban.com/link2/?target=no_url');
+  assert.equal(b.textParts[3].url, 'not-a-valid-url:$$$');
+  assert.equal(b.textParts[5].url, 'https://www.douban.com/misc/faq');
+});
+
