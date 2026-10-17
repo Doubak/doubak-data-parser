@@ -27,7 +27,7 @@ import { parse } from '../src/parse.js';
 const CASES = new URL('../../doubak-data-specs/canonical/tests/cases', import.meta.url).pathname;
 
 /** @param {object} out `parse()` 的产出 */
-function summarize({ marks, subjects, broadcasts, longform }, warnings) {
+function summarize({ marks, subjects, broadcasts, longform, profile }, warnings) {
   const authorities = new Set();
   const identityLayers = new Set();
   let revisions = 0;
@@ -37,6 +37,10 @@ function summarize({ marks, subjects, broadcasts, longform }, warnings) {
     for (const r of m.revisions) for (const o of r.observations) authorities.add(o.absence_authority);
   }
   return {
+    profile: profile.length,
+    profile_revisions: profile.reduce((n,p)=>n+p.revisions.length,0),
+    profile_observations: profile.flatMap(p=>p.revisions).reduce((n,r)=>n+r.observations.length,0),
+    profile_avatars: profile.flatMap(p=>p.revisions.map(r=>r.fields.avatar_url)),
     marks: marks.length,
     mark_revisions: revisions,
 

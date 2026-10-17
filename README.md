@@ -74,7 +74,7 @@ node bin/parse.js ~/downloads/exports ~/downloads/canonical
 匿名页面未展示标签或游戏评分时，首次观测省略相应字段；已有历史值保持不变，并用
 observation 的 `omitted_fields` 说明本次未提供这些字段的新证据，不制造清空修订。
 
-解析产出为 8 个标准 NDJSON 文件，每行单条完整 JSON 对象，便于流式处理及使用 `jq` 直接检索分析：
+解析产出为 9 个标准 NDJSON 文件，每行单条完整 JSON 对象，便于流式处理及使用 `jq` 直接检索分析：
 
 | 文件名 | 内容描述 |
 |---|---|
@@ -86,6 +86,7 @@ observation 的 `omitted_fields` 说明本次未提供这些字段的新证据�
 | `albums.ndjson` | 个人相册：包含相册元信息、照片地址与说明 |
 | `group_topics.ndjson` | 发起的小组讨论：包含所属小组、主题正文与图片 |
 | `group_joins.ndjson` | 加入的小组：包含小组资料与成员角色 |
+| `profile.ndjson` | 目标账号资料：昵称、域名与头像 URL，包含修订与主页观测来源 |
 
 ```sh
 # 查询评分为 5 星的电影短评：
@@ -294,8 +295,8 @@ python3 <doubak-data-specs>/bundle/v1/validate.py <归档目录>
 
 ### 账号资料与近期实测边界
 
-当前从 manifest 保留账号昵称，尚不输出 `profile.ndjson` 或结构化头像。
-下一步见[头像归档设计](https://github.com/Doubak/doubak-extension/blob/main/docs/designs/account-avatar-and-site-branding.md)；
+解析器 0.16.0 输出 canonical/1.3，新增 `profile.ndjson`；仍支持旧 bundle。
+语义见[头像归档设计](https://github.com/Doubak/doubak-extension/blob/main/docs/designs/account-avatar-and-site-branding.md)；
 原始主页含图片 URL 不代表归档里有图片字节。
 
 2026-10-16 已用本人新增量档案验证 20 条广播，包括 topic 动态的独立标题、正文、时间及来源链接；

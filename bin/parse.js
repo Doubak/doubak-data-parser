@@ -161,7 +161,7 @@ try {
 }
 const {
   marks, subjects, broadcasts, longform, doulists,
-  albums = [], groupTopics = [], groupJoins = [],
+  profile = [], albums = [], groupTopics = [], groupJoins = [],
   warnings, stats, topology,
 } = parsed;
 
@@ -175,6 +175,7 @@ writeFileSync(join(outDir, 'doulists.ndjson'), ndjson(doulists));
 writeFileSync(join(outDir, 'albums.ndjson'), ndjson(albums));
 writeFileSync(join(outDir, 'group_topics.ndjson'), ndjson(groupTopics));
 writeFileSync(join(outDir, 'group_joins.ndjson'), ndjson(groupJoins));
+writeFileSync(join(outDir, 'profile.ndjson'), ndjson(profile));
 
 // **把档案的拓扑说出来，但不替用户取舍。** 多个根、分叉都很正常（删掉一份重抓、
 // 换台机器、同一天跑两次增量都会分叉），而分叉不是矛盾：捕获是带时间戳的观测，
