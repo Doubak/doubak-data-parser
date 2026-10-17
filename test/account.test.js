@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parse } from '../src/parse.js';
+import { filterSourcesByAccount, groupSourcesByAccount } from '../src/account.js';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf-8');
 
@@ -54,3 +55,31 @@ test('昵称变更只出现在 manifest 中，也能补齐七类旧记录且不�
     assert.ok(out.subjects.every((record) => !('account' in record)));
   }
 });
+
+test('filterSourcesByAccount 与 groupSourcesByAccount 能按账号正确切分 bundles', () => {
+  const sources = [
+    { bundleId: 'b1', manifest: { account: { user_id: '100' } } },
+    { bundleId: 'b2', manifest: { account: { user_id: '100' }, previous_bundle_id: 'b1' } },
+    { bundleId: 'b3', manifest: { account: { user_id: '200' } } },
+    { bundleId: 'b4_orphan', manifest: null },
+    { bundleId: 'b5', manifest: { account: { user_id: '100' }, previous_bundle_id: 'b4_orphan' } },
+  ];
+
+  const for100 = filterSourcesByAccount(sources, '100');
+  assert.equal(for100.length, 4);
+  assert.deepEqual(for100.map((s) => s.bundleId).sort(), ['b1', 'b2', 'b4_orphan', 'b5']);
+
+  const for200 = filterSourcesByAccount(sources, '200');
+  assert.equal(for200.length, 1);
+  assert.equal(for200[0].bundleId, 'b3');
+
+  const forNonexistent = filterSourcesByAccount(sources, '999');
+  assert.equal(forNonexistent.length, 0);
+
+  const groups = groupSourcesByAccount(sources);
+  assert.deepEqual([...groups.keys()].sort(), ['100', '200']);
+  assert.equal(groups.get('100').length, 4);
+  assert.equal(groups.get('200').length, 1);
+});
+
+
