@@ -7,7 +7,7 @@
 豆备（Doubak）的数据解析核心工具。负责将抓取端生成的 **bundle**（WARC 归档 + 索引 + 元数据清单）转换为结构化的标准 **canonical** 数据（包含完整的版本修订历史），供静态站点生成器渲染发布，或导出至 NeoDB 等第三方平台。
 
 ```sh
-node bin/parse.js  <包含 bundle 归档的目录> [输出目录] [--ignore-warnings] [--no-verify]
+node bin/parse.js  <包含 bundle 归档的目录> [输出目录] [--account=<uid>] [--all-accounts] [--ignore-warnings] [--no-verify]
 node bin/verify.js <包含 bundle 归档的目录>            # 仅执行完整性校验，不执行数据解析
 npm test                                               # 运行测试套件（使用 Node 内置 test runner，零外部依赖）
 ```
@@ -57,7 +57,10 @@ node bin/parse.js ~/downloads/exports ~/downloads/canonical
 
 在此基础上，系统会主动拦截并报错的两类真正异常：
 
-- **混杂了不同账号的归档（默认直接报错中断）**：跨账号混合输出不符合个人站点和单账号导出的输入约定。若用户明确需要合并多账号，可显式传入 `--ignore-warnings` 参数放行。即使绕过阻断，系统仍会在最终元数据中保留 `type: multiple_accounts` 告警记录；
+- **混杂了不同账号的归档（默认直接报错中断）**：跨账号混合输出不符合个人站点和单账号导出的输入约定。当输入目录（或其子目录）中混有不同 UID 时，解析器会执行 Fail-Fast 阻断退出：
+  - **单账号隔离（`--account <uid>`）**：仅提取目标账号归档，并自动沿引用链（`previous_bundle_id` 与 `floor_from_bundle_id`）溯源保留链条中的无清单历史祖先包；
+  - **批量自动分治（`--all-accounts`）**：自动按账号分流，分别解析输出至 `<输出目录>/<uid>/`；
+  - 若用户明确知晓并需要强行合并多账号，可显式传入 `--ignore-warnings` 放行（系统仍会在元数据中保留 `type: multiple_accounts` 告警）。
 - **水位线基准（floor）指向的归档缺失（输出告警）**：若增量归档所依赖的历史基准未包含在输入目录中，意味着基准线以下的历史区间存在覆盖盲区，系统会输出明确的空洞告警。
 
 ---
