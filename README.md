@@ -308,3 +308,13 @@ python3 <doubak-data-specs>/bundle/v1/validate.py <归档目录>
 与八份祖先合并得到 3,447 条广播且无告警。另一个公开账号样本已完成 parser / exporter / site-generator
 离线链路核对。历史失败响应仍保留，重解析不改写它们的 verdict；这不是对所有公开页面类型的在线验收。
 CLI 输入应预先按 UID 分开，尚无统一 `--account` 选择器；不要用 `--ignore-warnings` 将多账号混成个人站点。
+
+### 广播回复首屏：仅保留原始证据
+
+`broadcast.comments_snapshot` 和 `broadcast.item` 当前不生成 Canonical 实体。
+解析器在 `stats.rawOnlyCaptures` 中报告 capture ID、intent、verdict 和范围
+（`first_page_only` / `detail_html_only`），不读取其正文，也不把第三方回复、作者、头像
+或楼中楼预览混入个人广播。失败响应同样保留其 verdict，不算成功首屏。
+HTML 详情仍可从原始 WARC 查看；本轮没有将详情版式直接套进列表抽取器。
+既有广播来自 `broadcast.timeline`，修订仍只有一条 `revisions` 轨道。
+因此生成站点、搜索及外部平台导出均不包含这些新增原始内容。
