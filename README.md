@@ -318,3 +318,7 @@ CLI 输入应预先按 UID 分开，尚无统一 `--account` 选择器；不要�
 HTML 详情仍可从原始 WARC 查看；本轮没有将详情版式直接套进列表抽取器。
 既有广播来自 `broadcast.timeline`，修订仍只有一条 `revisions` 轨道。
 因此生成站点、搜索及外部平台导出均不包含这些新增原始内容。
+
+此边界也适用于 personal topic 详情和 nested 回复首屏；接口路径含 `group/topic`
+不改变 `broadcast.item` / `broadcast.comments_snapshot` 的原始证据语义，
+不会额外生成小组主帖或个人回复实体。
