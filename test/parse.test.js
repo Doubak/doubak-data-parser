@@ -99,7 +99,7 @@ describe('缺失推断的权限', () => {
 describe('哪些捕获能当内容读', () => {
   test('只有 verdict=ok', () => {
     assert.equal(isContent({ verdict: 'ok' }), true);
-    for (const v of ['blocked', 'challenge', 'login', 'gone', 'soft404']) {
+    for (const v of ['blocked', 'challenge', 'login', 'gone', 'soft404', 'denied']) {
       assert.equal(isContent({ verdict: v }), false, v);
     }
   });
@@ -115,6 +115,7 @@ describe('哪些捕获能当内容读', () => {
     // 封闭词表出现新取值 = 生产者知道一种本解析器不认识的失败方式。
     assert.equal(hasUnknownVerdict({ verdict: 'quarantined' }), true);
     assert.equal(hasUnknownVerdict({ verdict: 'ok' }), false);
+    assert.equal(hasUnknownVerdict({ verdict: 'denied' }), false);
   });
 });
 
