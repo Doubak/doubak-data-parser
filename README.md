@@ -301,7 +301,7 @@ python3 <doubak-data-specs>/bundle/v1/validate.py <归档目录>
 ### 账号资料与近期实测边界
 
 解析器 0.16.0 输出 canonical/1.3，新增 `profile.ndjson`；仍支持旧 bundle。
-语义见[头像归档设计](https://github.com/Doubak/doubak-extension/blob/main/docs/designs/account-avatar-and-site-branding.md)；
+语义见[头像归档设计](https://github.com/Doubak/doubak-extension/blob/main/docs/designs/done/account-avatar-and-site-branding.md)；
 原始主页含图片 URL 不代表归档里有图片字节。
 
 2026-10-16 已用本人新增量档案验证 20 条广播，包括 topic 动态的独立标题、正文、时间及来源链接；
