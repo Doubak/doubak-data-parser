@@ -679,12 +679,15 @@ describe('对着真实档案端到端', () => {
         revs += 1;
         // ① key 必须与原始值对得上 —— 否则「判据」判的是别的东西
         assert.equal(
-          r.fields.cover_url_key, coverUrlKey(r.fields.cover_url),
+          r.fields.cover_url_key ?? null, coverUrlKey(r.fields.cover_url),
           `${s.medium}/${s.id} 第 ${i} 版的 key 与 cover_url 对不上`,
         );
         // ② cover_url 不许带摘要（带了就又会开修订），key 必须带
         assert.equal('cover_url' in r.digests, false, `${s.medium}/${s.id} 的 cover_url 还带着摘要`);
-        assert.ok('cover_url_key' in r.digests, `${s.medium}/${s.id} 的 cover_url_key 没有摘要`);
+        assert.equal('cover_url_key' in r.digests, 'cover_url_key' in r.fields, `${s.medium}/${s.id} 的 cover_url_key 摘要不匹配`);
+        if (!('cover_url_key' in r.fields)) {
+          assert.ok(r.observations.every(o => o.omitted_fields.includes('cover_url_key')), '详情先到时缺封面必须声明省略');
+        }
 
         if (i === 0) continue;
         const prev = s.revisions[i - 1];

@@ -48,6 +48,7 @@ function summarize({ marks, subjects, broadcasts, longform, profile }, warnings)
     // 「豆瓣改了目录数据」这一族的性质一条都表达不了——而那正是这套用例里
     // catalog-churn / view-counter / cdn-shard 共同守的东西。
     subjects: subjects.length,
+    subject_series_ids: subjects.flatMap(s=>s.revisions.map(r=>r.fields.series?.items.map(i=>i.id) ?? null)),
     subject_revisions: subjects.reduce((n, x) => n + x.revisions.length, 0),
     // 每个作品的封面**逐版序列**。只数修订条数的话，把 `cover_url` 从 fields 里
     // 整个删掉照样是绿的（key 还在，条数不变）——而那才是真的丢数据。这一条同时
@@ -137,6 +138,7 @@ describe('canonical 一致性用例', () => {
         // `*_contains` 是子串断言（正文太长，不适合逐字比）；其余是相等或集合相等。
         const ok = key.endsWith('_contains')
           ? String(actual).includes(String(want))
+          : key === 'subject_series_ids' ? JSON.stringify(actual) === JSON.stringify(want)
           : Array.isArray(want)
             ? want.every((v) => actual.includes(v)) && actual.length === want.length
             // 映射：键集合与每个值都要相等。**键数也要比**，否则实现少产出一条

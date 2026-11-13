@@ -300,7 +300,7 @@ python3 <doubak-data-specs>/bundle/v1/validate.py <归档目录>
 
 ### 账号资料与近期实测边界
 
-解析器 0.16.0 输出 canonical/1.3，新增 `profile.ndjson`；仍支持旧 bundle。
+解析器 0.18.0 输出 canonical/1.4；0.16.0 新增的 `profile.ndjson` 保持兼容，仍支持旧 bundle。
 语义见[头像归档设计](https://github.com/Doubak/doubak-extension/blob/main/docs/designs/done/account-avatar-and-site-branding.md)；
 原始主页含图片 URL 不代表归档里有图片字节。
 
@@ -322,3 +322,16 @@ HTML 详情仍可从原始 WARC 查看；本轮没有将详情版式直接套进
 此边界也适用于 personal topic 详情和 nested 回复首屏；接口路径含 `group/topic`
 不改变 `broadcast.item` / `broadcast.comments_snapshot` 的原始证据语义，
 不会额外生成小组主帖或个人回复实体。
+
+### 同系列作品与详情时序（0.18.0）
+
+从已有电影详情 HTML 的 `_CONFIG` 读取同系列目录快照，保存为 subject 的可选
+`fields.series`。不执行页面脚本、不联网、不沿成员递归抓取，也不创建额外标记。
+系列成员按来源顺序保留；缺栏目保留旧证据，明确空配置才清空。图书「丛书」仍属于 info。
+当前只支持已有真实样本验证的嵌入配置；未知静态栏目会诊断，不猜结构。
+
+作品详情与标记列表按真实捕获时间重放稀疏补丁，详情变化可以单独推进作品修订；
+不再将最新详情倒填进旧列表。subject 修订数可能增加，个人标记、评分和短评不因此变化。
+字段来源指回各自 capture，subject 的 omitted_fields 与 mark 分开构造。
+需要用全部原始 bundle **重新解析到新目录**，不能在旧 canonical 上补当前快照冒充历史。
+未保存详情的旧档案照常解析，首次未知 series 省略键；info/aliases 保留未知 null 约定。
