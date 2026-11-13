@@ -74,10 +74,14 @@ function stringValue(raw) {
   return s;
 }
 // Only data is accepted (no identifiers as values, calls, getters, computed keys or spreads).
-function literal(ts, at, depth = 0) {
+function literal(ts, at, depth = 0, jsonOnly = false) {
   if (depth > 32) throw Error('literal_depth_limit');
   const t = ts[at]; if (!t) throw Error('truncated_config');
-  if (t.kind === 'string') return [stringValue(t.raw), at + 1];
+  if (t.kind === 'string') {
+    if (jsonOnly && t.raw[0] !== '"') throw Error('invalid_json_string');
+    return [stringValue(t.raw), at + 1];
+  }
+  if (jsonOnly && ['true', 'false'].includes(t.raw)) return [t.raw === 'true', at + 1];
   if (t.raw === 'null') return [null, at + 1];
   if (/^\d+$/.test(t.raw)) return [Number(t.raw), at + 1];
   if (t.raw !== '{' && t.raw !== '[') throw Error('unsupported_expression');
@@ -87,14 +91,20 @@ function literal(ts, at, depth = 0) {
     let key;
     if (object) {
       const kt = ts[i++]; if (!kt || (kt.kind !== 'string' && !/^[A-Za-z_$][\w$]*$/.test(kt.raw))) throw Error('invalid_key');
+      if (jsonOnly && (kt.kind !== 'string' || kt.raw[0] !== '"')) throw Error('invalid_json_key');
       key = kt.kind === 'string' ? stringValue(kt.raw) : kt.raw;
       if (Object.hasOwn(result, key)) throw Error('duplicate_key');
       if (ts[i++]?.raw !== ':') throw Error('unsupported_property');
     }
-    const [value, next] = literal(ts, i, depth + 1); i = next;
+    const nestedJson = jsonOnly || ['SERIES_OTHER_SUBJECTS', 'SERIES_SEASON_NAMES'].includes(key);
+    const start = i;
+    const [value, next] = literal(ts, i, depth + 1, nestedJson); i = next;
+    // Validate the observed JSON subtrees independently; surrounding _CONFIG is JS data.
+    if (nestedJson && !jsonOnly) JSON.parse(ts.slice(start, next).map(t => t.raw).join(' '));
     if (object) result[key] = value; else result.push(value);
     if (ts[i]?.raw === end) break;
     if (ts[i++]?.raw !== ',') throw Error('truncated_config');
+    if (jsonOnly && ts[i]?.raw === end) throw Error('invalid_json_trailing_comma');
   }
   return [result, i + 1];
 }

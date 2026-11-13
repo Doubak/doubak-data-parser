@@ -21,7 +21,7 @@
 读取方式：只读取受限数据字面量，不执行 script，不用 `eval` / `Function` / VM。
 `SERIES_OTHER_SUBJECTS` 与 `SERIES_SEASON_NAMES` 的值是 JSON；外层 `_CONFIG` 是 JS
 对象字面量，含单引号及未加引号的键，不能把整个对象直接交给 `JSON.parse()`，
-也不能用全局替换引号的方式转换。正式实现需有字符串 / 转义感知的边界扫描及负例。
+也不能用全局替换引号的方式转换。实现与负例见 ../../series.test.js 和 ../../../src/extract-series.js。
 
 `scope` 是否为完整枚举仍须按设计验证来源契约；这里的 `expected` 只记录原始数组与总数，
 没有把数量对上当成完整性证明。片段也不证明系列页的点击 / 分页行为或整个系列身份永不变化。

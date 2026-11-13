@@ -758,7 +758,7 @@ export async function parse(sources, opts = {}) {
       upsertMark(marks, markKeys, { m, medium, status, account: accountOf(src), observation, parserVersion, tz });
       const key = `${medium}:${m.subjectId}`;
       subjectKeys.add(key);
-      subjectPatches.push({ key, medium, id: m.subjectId, url: m.subjectUrl,
+      subjectPatches.push({ key, medium, id: m.subjectId, url: detached(m.subjectUrl ?? null),
         upstream_deleted: m.upstreamDeleted, kind: 'list', observation: { ...observationBase },
         fields: detached({ title: m.upstreamDeleted ? null : m.title, cover_url: m.coverUrl,
           cover_url_key: coverUrlKey(m.coverUrl), raw_meta: m.rawMeta }) });
@@ -1018,7 +1018,7 @@ function upsertMark(store, resolved, { m, medium, status, account, observation, 
       upstream_id: m.upstreamId ?? null,
       account: canonicalAccount(account, accountId),
       medium,
-      subject: { id: m.subjectId, url: m.subjectUrl, upstream_deleted: m.upstreamDeleted },
+      subject: { id: m.subjectId, url: detached(m.subjectUrl ?? null), upstream_deleted: m.upstreamDeleted },
       revisions: [],
     };
     store.set(key, rec);

@@ -107,3 +107,25 @@ test('same-time conflicting series are deterministic and diagnosed', async () =>
   const a=await parse([s]); assert.ok(a.warnings.some(w=>w.type==='series_time_conflict'));
   s.index.reverse(); assert.deepEqual((await parse([s])).subjects,a.subjects);
 });
+
+test('JSON members reject single quotes/trailing commas; field key order does not change digest', async()=>{
+  for(const html of [film.replace('"title":"BJ单身日记"',"'title':'BJ单身日记'"), film.replace('"year":"2001","id":"1304585"}','"year":"2001","id":"1304585",}')]) assert.equal(extract(html).value,undefined);
+  const s=seriesSource([{at:at(1),list:true,html:markHtml()},{at:at(2),html:film},
+    {at:at(3),html:film.replace('"rating":"7.5","title":"BJ单身日记"','"title":"BJ单身日记","rating":"7.5"')}]);
+  const out=await parse([s]);assert.equal(out.subjects[0].revisions.length,2);
+  assert.equal(out.subjects[0].revisions.at(-1).observations.length,2);
+});
+
+import { spawnSync } from 'node:child_process';
+test('sparse replay does not retain full HTML backing strings under a bounded heap',()=>{
+  const program=`import {parse} from ${JSON.stringify(new URL('../src/parse.js',import.meta.url).href)};
+  const bundleId='20261113T000000Z-aabbcc';
+  const index=Array.from({length:70},(_,i)=>({capture_id:bundleId+'#'+String(i+1).padStart(6,'0'),
+    observed_at:new Date(Date.UTC(2026,0,1,0,i)).toISOString(),route_key:'interest.movie.collect',
+    intent:'interest.list.movie.collect',verdict:'ok',surface:'html',url:'https://movie.douban.com/people/tester/collect'}));
+  const source={bundleId,status:'complete',manifest:{account:{user_id:'111'}},index,crawlState:new Map(),coverage:new Map(),close(){},
+    payload:row=>'<!--'+row.capture_id+'x'.repeat(3*1024*1024)+'-->'+${JSON.stringify(markHtml())}};
+  const out=await parse([source]);if(out.subjects.length!==1||out.subjects[0].revisions.length!==1) process.exit(2);`;
+  const r=spawnSync(process.execPath,['--max-old-space-size=128','--input-type=module','-e',program],{encoding:'utf8',timeout:30000});
+  assert.equal(r.status,0,r.stderr);
+});
