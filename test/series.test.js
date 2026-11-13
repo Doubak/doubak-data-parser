@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { extractSeries } from '../src/extract-series.js';
 import { parse } from '../src/parse.js';
 const fixture = name => readFileSync(new URL(`./fixtures/subject-series/${name}.html`, import.meta.url), 'utf8');
@@ -9,6 +10,15 @@ const film = fixture('film-before');
 const extract = html => extractSeries(html, url('36848001'));
 
 test('nine real archived configurations: additions, removals, order, null labels and explicit empty', () => {
+  const sources=JSON.parse(readFileSync(new URL('./fixtures/subject-series/sources.json',import.meta.url),'utf8'));
+  for(const source of sources) {
+    const bytes=readFileSync(new URL(`./fixtures/subject-series/${source.file}`,import.meta.url));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),source.excerpt_sha256,source.file);
+    const value=extractSeries(bytes.toString('utf8'),source.source_url).value;
+    assert.deepEqual(value.items.map(i=>i.id),source.expected.other_ids,source.file);
+    assert.equal(value.claimed_total,source.expected.claimed_total,source.file);
+  }
+
   const read = (name, id) => { const r = extractSeries(fixture(name), url(id)); assert.deepEqual(r.diagnostics, []); return r.value; };
   assert.equal(read('film-before','36848001').items.length, 3);
   assert.equal(read('film-after','36848001').items.length, 4);
