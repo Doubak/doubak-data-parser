@@ -141,3 +141,36 @@ test('sparse replay does not retain full HTML backing strings under a bounded he
   const r=spawnSync(process.execPath,['--max-old-space-size=128','--input-type=module','-e',program],{encoding:'utf8',timeout:30000});
   assert.equal(r.status,0,r.stderr);
 });
+
+test('partial mark coverage {A, B, C}: A and B marked, unmarked C stays in series items without creating mark/subject', async () => {
+  const bHtml = fixture('film-before')
+    .replaceAll('1304585', '36848001')
+    .replace("SUBJECT_ID: '36848001'", "SUBJECT_ID: '1304585'");
+  const cHtml = fixture('film-before')
+    .replace("SUBJECT_ID: '36848001'", "SUBJECT_ID: '1308819'");
+  const s = seriesSource([
+    { at: at(1), list: true, html: markHtml('36848001', 'A') + markHtml('1304585', 'B') },
+    { at: at(2), id: '36848001', html: film },
+    { at: at(3), id: '1304585', html: bHtml },
+    { at: at(4), id: '1308819', html: cHtml },
+  ]);
+  const out = await parse([s]);
+  assert.deepEqual(out.marks.map(m => m.subject.id).sort(), ['1304585', '36848001']);
+  assert.deepEqual(out.subjects.map(x => x.id).sort(), ['1304585', '36848001']);
+  const byId = new Map(out.subjects.map(x => [x.id, x.revisions.at(-1).fields.series.items.map(i => i.id)]));
+  assert.ok(byId.get('36848001').includes('1308819'));
+  assert.ok(byId.get('1304585').includes('1308819'));
+});
+
+test('unparseable observed_at still uses deterministic bundle/capture tie-breakers without false time conflicts', async () => {
+  const s = seriesSource([
+    { at: 'not-a-date-a', list: true, html: markHtml() },
+    { at: 'not-a-date-a', html: film },
+    { at: 'not-a-date-b', html: fixture('film-after') },
+  ]);
+  const a = await parse([s]);
+  assert.equal(a.warnings.some(w => w.type === 'series_time_conflict'), false);
+  s.index.reverse();
+  const b = await parse([s]);
+  assert.deepEqual(b.subjects, a.subjects);
+});
