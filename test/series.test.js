@@ -31,7 +31,11 @@ test('nine real archived configurations: additions, removals, order, null labels
   assert.equal(read('singleton-series','34802334').claimed_total, 1);
   assert.equal(read('singleton-series','34802334').items.length, 0);
   assert.equal(read('film-before','36848001').items[0].season_label, null);
-  assert.equal(read('film-before','36848001').scope, 'unknown');
+  assert.equal(read('film-before','36848001').scope, 'complete');
+  assert.equal(read('film-after','36848001').scope, 'complete');
+  assert.equal(read('members-before-removal','26642033').scope, 'complete');
+  assert.equal(read('tv-many-members','36653963').scope, 'complete');
+  assert.equal(extractSeries(fixture('film-before').replace("series_total: '4'", "series_total: '9'"), url('36848001')).value.scope, 'partial');
 });
 
 test('script boundaries, comments and inert/quoted fake configs cannot supply evidence', () => {
