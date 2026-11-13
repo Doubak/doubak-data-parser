@@ -43,7 +43,9 @@ test('unsupported, conflicting, truncated and executable values never clear a se
     film.replace('SERIES_OTHER_SUBJECTS:', 'OTHER:'),
     film.replace("series_total: '4'", "series_total: '4' + evil()"),
     film.replace('BJ单身日记', '</script>'), film.slice(0,-50),
-    film + fixture('film-after'), film.replace('SERIES: {','SERIES: { get x() { return 1 },')]) {
+    film + fixture('film-after'), film.replace('SERIES: {','SERIES: { get x() { return 1 },'),
+    film.replace('var _CONFIG', 'if (false) var _CONFIG'),
+    '<script>const text = `outer ${`' + film.replaceAll('<script>','').replaceAll('</script>','') + '`}`;</script>']) {
     assert.equal(extract(html).value, undefined);
   }
   assert.ok(extract(film.replace("series_total: '4'", "series_total: '9'")).diagnostics.length);

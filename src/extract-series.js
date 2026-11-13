@@ -42,14 +42,15 @@ function tokens(text) {
       const end = text.indexOf('*/', i + 2); if (end < 0) throw Error('truncated_comment');
       i = end + 2; continue;
     }
-    if (c === '"' || c === "'" || c === '`') {
+    if (c === '`') throw Error('unsupported_template_literal');
+    if (c === '"' || c === "'") {
       const start = i++; let closed = false;
       while (i < text.length) {
         if (text[i] === '\\') { i += 2; continue; }
         if (text[i++] === c) { closed = true; break; }
       }
       if (!closed) throw Error('truncated_string');
-      out.push({ kind: c === '`' ? 'template' : 'string', raw: text.slice(start, i) }); continue;
+      out.push({ kind: 'string', raw: text.slice(start, i) }); continue;
     }
     const word = /^[A-Za-z_$][\w$]*|^\d+(?:\.\d+)?/.exec(text.slice(i));
     if (word) { out.push({ kind: 'word', raw: word[0] }); i += word[0].length; continue; }
@@ -113,7 +114,7 @@ function readConfigs(body) {
   let depth = 0;
   for (let i = 0; i < ts.length; i++) {
     const t = ts[i].raw;
-    if (depth === 0 && ['var', 'let', 'const'].includes(t) && ts[i + 1]?.raw === '_CONFIG' && ts[i + 2]?.raw === '=') {
+    if (depth === 0 && (i === 0 || ts[i - 1].raw === ';') && ['var', 'let', 'const'].includes(t) && ts[i + 1]?.raw === '_CONFIG' && ts[i + 2]?.raw === '=') {
       const [value, next] = literal(ts, i + 3);
       if (ts[next] && ![';', 'var', 'let', 'const'].includes(ts[next].raw)) throw Error('unsupported_config_suffix');
       configs.push(value); i = next - 1; continue;
